@@ -1,12 +1,12 @@
 import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 import logging
 import time
 
 # Replace with your bot token
-BOT_TOKEN = "6757464190:AAG7QlwzfP3wCwyOJ_nQN9K9836RJJaZchU"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 # Replace with your channel id where you want to copy the messages
-DESTINATION_CHANNEL_ID = "-1002391883534"
+DESTINATION_CHANNEL_ID = "YOUR_DESTINATION_CHANNEL_ID"
 
 # Store the channels to copy messages from
 SOURCE_CHANNELS = []
@@ -22,10 +22,10 @@ def start(update, context):
 
 def add_channel(update, context):
     try:
-      channel_id = context.args[0]
-      SOURCE_CHANNELS.append(channel_id)
-      update.message.reply_text(f'Channel {channel_id} added to the list of channels to copy from.')
-      logger.info(f"Added channel: {channel_id}")
+        channel_id = context.args[0]
+        SOURCE_CHANNELS.append(channel_id)
+        update.message.reply_text(f'Channel {channel_id} added to the list of channels to copy from.')
+        logger.info(f"Added channel: {channel_id}")
     except (IndexError, ValueError):
         update.message.reply_text('Please provide a valid channel ID after the /add_channel command.')
 
@@ -34,12 +34,12 @@ def copy_message(update, context):
 
     if str(message.chat_id) in SOURCE_CHANNELS:
         try:
-          context.bot.copy_message(
-              chat_id = DESTINATION_CHANNEL_ID,
-              from_chat_id = message.chat_id,
-              message_id = message.message_id
-          )
-          logger.info(f"Copied message from {message.chat_id} to {DESTINATION_CHANNEL_ID}")
+            context.bot.copy_message(
+                chat_id = DESTINATION_CHANNEL_ID,
+                from_chat_id = message.chat_id,
+                message_id = message.message_id
+            )
+            logger.info(f"Copied message from {message.chat_id} to {DESTINATION_CHANNEL_ID}")
         except Exception as e:
             logger.error(f"Error copying message: {e}")
 
@@ -48,17 +48,15 @@ def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("add_channel", add_channel))
-    dp.add_handler(MessageHandler(Filters.chat_type.groups , copy_message))
-    dp.add_error_handler(error)
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    updater.start_polling()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add_channel", add_channel))
+    application.add_handler(MessageHandler(filters.chat_type.groups , copy_message))
+    application.add_error_handler(error)
+    
+    application.run_polling()
     logger.info("Bot started and is polling for updates...")
-    updater.idle()
 
 if __name__ == '__main__':
     main()
