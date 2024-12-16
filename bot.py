@@ -52,7 +52,7 @@ def main():
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add_channel", add_channel))
-    application.add_handler(MessageHandler(filters.chat_type.groups , copy_message))
+    application.add_handler(MessageHandler(filters.ChatType.GROUPS , copy_message))
     application.add_error_handler(error)
     
     application.run_polling()
