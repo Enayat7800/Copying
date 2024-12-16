@@ -4,6 +4,7 @@ from telethon import TelegramClient, events, types
 from datetime import datetime, timedelta
 import logging
 import re
+from pymongo import MongoClient
 
 # Environment variables
 API_ID = int(os.getenv('API_ID'))
@@ -12,36 +13,18 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 NOTIFICATION_CHANNEL_ID = int(os.getenv('NOTIFICATION_CHANNEL_ID'))
 
-# File to store data
-DATA_FILE = 'bot_data.json'
+# MongoDB URL from environment variable
+MONGO_URL = os.getenv('MONGO_URL')
 
-# Load data from file or initialize if not exists
-def load_data():
-    try:
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
-            return (
-                data.get('channel_ids', []),
-                data.get('text_links', {}),
-                data.get('user_data', {}),
-                data.get('copy_data', {})
-            )
-    except (FileNotFoundError, json.JSONDecodeError):
-        return [], {}, {}, {}
-
-# Save data to file
-def save_data(channel_ids, text_links, user_data, copy_data):
-    data = {
-        'channel_ids': channel_ids,
-        'text_links': text_links,
-        'user_data': user_data,
-        'copy_data': copy_data
-    }
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
-
-# Initialize the bot with data from storage
-CHANNEL_IDS, text_links, user_data, copy_data = load_data()
+# MongoDB client
+try:
+    client_mongo = MongoClient(MONGO_URL)
+    db = client_mongo.get_default_database() # get database name from URL
+    bot_data_collection = db['bot_data'] # collection for bot data
+    logging.info(f"Connected to MongoDB!")
+except Exception as e:
+    logging.error(f"Error connecting to MongoDB: {e}")
+    client_mongo = None # to avoid using mongo client further
 
 # Initialize the client
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
@@ -58,6 +41,7 @@ async def send_notification(message):
         logging.error(f"Error sending notification: {e}")
 
 def is_trial_active(user_id):
+    user_data = load_data()[2]
     if user_id in user_data:
         start_date = datetime.fromisoformat(user_data[user_id]['start_date'])
         trial_end_date = start_date + timedelta(days=3)
@@ -65,6 +49,7 @@ def is_trial_active(user_id):
     return True, True
 
 def is_user_active(user_id):
+    user_data = load_data()[2]
     if user_id in user_data:
         if user_data[user_id].get('is_paid',False):
             start_date = datetime.fromisoformat(user_data[user_id]['start_date'])
@@ -76,6 +61,7 @@ def is_user_active(user_id):
          return is_trial_active(user_id)[0]
     
 def check_user_status(user_id):
+    user_data = load_data()[2]
     if user_id in user_data:
         if user_data[user_id].get('is_blocked',False):
             return False
@@ -83,6 +69,33 @@ def check_user_status(user_id):
             return is_user_active(user_id)
     else:
         return is_trial_active(user_id)[0]
+    
+# Load data from MongoDB
+def load_data():
+    if client_mongo:
+         bot_data = bot_data_collection.find_one()
+         if bot_data:
+            return (
+                bot_data.get('channel_ids', []),
+                bot_data.get('text_links', {}),
+                bot_data.get('user_data', {}),
+                bot_data.get('copy_data', {})
+            )
+    return [], {}, {}, {}
+
+# Save data to MongoDB
+def save_data(channel_ids, text_links, user_data, copy_data):
+    if client_mongo:
+       data = {
+           'channel_ids': channel_ids,
+           'text_links': text_links,
+           'user_data': user_data,
+           'copy_data': copy_data
+       }
+       bot_data_collection.replace_one({}, data, upsert=True)
+
+# Initialize the bot with data from storage
+CHANNEL_IDS, text_links, user_data, copy_data = load_data()
 
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
@@ -93,6 +106,7 @@ async def start(event):
        await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
        return
     
+    user_data = load_data()[2]
     is_new_user = user_id not in user_data
     if is_new_user:
        user_data[user_id] = {
@@ -100,7 +114,7 @@ async def start(event):
         'is_paid':False,
         'is_blocked':False
         }
-       save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+       save_data(load_data()[0], load_data()[1], user_data, load_data()[3])
        user = await client.get_entity(user_id)
        username = user.username if user.username else "N/A"
        await send_notification(f"New user started the bot:\nUser ID: {user_id}\nUsername: @{username}")
@@ -141,12 +155,12 @@ async def add_channel(event):
     if not match:
         await event.respond('Invalid command format. Use: /addchannel -100123456789')
         return
-
+    CHANNEL_IDS = load_data()[0]
     try:
         channel_id = int(match.group(1))
         if channel_id not in CHANNEL_IDS:
             CHANNEL_IDS.append(channel_id)
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(CHANNEL_IDS, load_data()[1], load_data()[2], load_data()[3])
             await event.respond(f'Channel ID {channel_id} add ho gaya! 👍')
             await send_notification(f"Channel added by user {event.sender_id}:\nChannel ID: {channel_id}")
         else:
@@ -168,8 +182,9 @@ async def add_link(event):
 
     text = match.group(1).strip()
     link = match.group(2)
+    text_links = load_data()[1]
     text_links[text] = link
-    save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+    save_data(load_data()[0], text_links, load_data()[2], load_data()[3])
     await event.respond(f'Text "{text}" aur link "{link}" add ho gaya! 👍')
     await send_notification(f"Link added by user {event.sender_id}:\nText: {text}\nLink: {link}")
     logging.info(f"Current text_links: {text_links}")
@@ -179,6 +194,7 @@ async def show_channels(event):
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
+    CHANNEL_IDS = load_data()[0]
     if CHANNEL_IDS:
         channel_list = "\n".join([str(cid) for cid in CHANNEL_IDS])
         await event.respond(f'Current monitored channels:\n{channel_list}')
@@ -191,6 +207,7 @@ async def show_links(event):
     if not check_user_status(event.sender_id):
          await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
          return
+    text_links = load_data()[1]
     if text_links:
         link_list = "\n".join([f'{text}: {link}' for text, link in text_links.items()])
         await event.respond(f'Current links:\n{link_list}')
@@ -211,15 +228,16 @@ async def remove_channel(event):
 
     try:
         channel_id = int(match.group(1))
+        CHANNEL_IDS = load_data()[0]
         if channel_id in CHANNEL_IDS:
             CHANNEL_IDS.remove(channel_id)
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(CHANNEL_IDS, load_data()[1], load_data()[2], load_data()[3])
             await event.respond(f'Channel ID {channel_id} removed! 👍')
         else:
              await event.respond(f'Channel ID {channel_id} not found! ⚠️')
     except ValueError:
             await event.respond('Invalid channel ID. Please use a valid integer.')
-    logging.info(f"Current CHANNEL_IDS: {CHANNEL_IDS}")
+    logging.info(f"Current CHANNEL_IDS: {load_data()[0]}")
 
 @client.on(events.NewMessage(pattern=r'/removelink'))
 async def remove_link(event):
@@ -234,13 +252,14 @@ async def remove_link(event):
         return
         
     text = match.group(1).strip()
+    text_links = load_data()[1]
     if text in text_links:
         del text_links[text]
-        save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+        save_data(load_data()[0], text_links, load_data()[2], load_data()[3])
         await event.respond(f'Link with text "{text}" removed! 👍')
     else:
          await event.respond(f'Link with text "{text}" not found! ⚠️')
-    logging.info(f"Current text_links: {text_links}")
+    logging.info(f"Current text_links: {load_data()[1]}")
 
 @client.on(events.NewMessage(pattern=r'/adminactivate'))
 async def activate_user(event):
@@ -260,11 +279,12 @@ async def activate_user(event):
         
     try:
         user_id_to_activate = int(match.group(1))
+        user_data = load_data()[2]
         if user_id_to_activate in user_data:
             user_data[user_id_to_activate]['start_date'] = datetime.now().isoformat()
             user_data[user_id_to_activate]['is_paid'] = True
             user_data[user_id_to_activate]['is_blocked'] = False
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(load_data()[0], load_data()[1], user_data, load_data()[3])
             await event.respond(f'User ID {user_id_to_activate} activated for 30 days! ✅')
             await client.send_message(user_id_to_activate, "Congratulations! Your account has been activated for 30 days. Enjoy using the bot!")
         else:
@@ -290,9 +310,10 @@ async def block_user(event):
         
     try:
         user_id_to_block = int(match.group(1))
+        user_data = load_data()[2]
         if user_id_to_block in user_data:
             user_data[user_id_to_block]['is_blocked'] = True
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(load_data()[0], load_data()[1], user_data, load_data()[3])
             await event.respond(f'User ID {user_id_to_block} blocked! 🚫')
         else:
              await event.respond(f'User ID {user_id_to_block} not found! ⚠️')
@@ -317,9 +338,10 @@ async def unblock_user(event):
     
     try:
         user_id_to_unblock = int(match.group(1))
+        user_data = load_data()[2]
         if user_id_to_unblock in user_data:
             user_data[user_id_to_unblock]['is_blocked'] = False
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(load_data()[0], load_data()[1], user_data, load_data()[3])
             await event.respond(f'User ID {user_id_to_unblock} unblocked! ✅')
         else:
              await event.respond(f'User ID {user_id_to_unblock} not found! ⚠️')
@@ -355,16 +377,17 @@ async def add_copy(event):
         source_channel_id = int(match.group(1))
         destination_channel_id = int(match.group(2))
         
+        copy_data = load_data()[3]
         if str(source_channel_id) not in copy_data:
            copy_data[str(source_channel_id)] = destination_channel_id
-           save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+           save_data(load_data()[0], load_data()[1], load_data()[2], copy_data)
            await event.respond(f'Messages from channel {source_channel_id} will now be copied to {destination_channel_id} 👍')
            await send_notification(f"Copying set by user {event.sender_id}:\nSource: {source_channel_id}\nDestination: {destination_channel_id}")
         else:
             await event.respond(f'Copying from {source_channel_id} already set. ⚠️')
     except ValueError:
            await event.respond('Invalid channel ID. Please use a valid integer.')
-    logging.info(f"Current copy_data: {copy_data}")
+    logging.info(f"Current copy_data: {load_data()[3]}")
 
 @client.on(events.NewMessage(pattern=r'/removecopy'))
 async def remove_copy(event):
@@ -380,16 +403,17 @@ async def remove_copy(event):
 
    try:
         source_channel_id = int(match.group(1))
+        copy_data = load_data()[3]
         if str(source_channel_id) in copy_data:
             del copy_data[str(source_channel_id)]
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            save_data(load_data()[0], load_data()[1], load_data()[2], copy_data)
             await event.respond(f'Copying from {source_channel_id} removed! 👍')
             await send_notification(f"Copying removed by user {event.sender_id}:\nSource: {source_channel_id}")
         else:
             await event.respond(f'Copying from {source_channel_id} not found! ⚠️')
    except ValueError:
         await event.respond('Invalid channel ID. Please use a valid integer.')
-   logging.info(f"Current copy_data: {copy_data}")
+   logging.info(f"Current copy_data: {load_data()[3]}")
 
 @client.on(events.NewMessage())
 async def add_links(event):
@@ -399,6 +423,7 @@ async def add_links(event):
             await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
     
+    CHANNEL_IDS = load_data()[0]
     if event.is_channel and event.chat_id in CHANNEL_IDS:
         logging.info(f"Message received from channel ID: {event.chat_id}")
         message_text = event.message.message if event.message.message else ""
@@ -408,6 +433,7 @@ async def add_links(event):
             caption = event.message.message or ""  # Use caption as message
             modified_caption = caption
             
+            text_links = load_data()[1]
             for text, link in text_links.items():
                 if text in modified_caption:
                      modified_caption = modified_caption.replace(text, f"{text}\n{link}")
@@ -421,6 +447,7 @@ async def add_links(event):
            # Handle text messages
            if message_text:
                modified_text = message_text
+               text_links = load_data()[1]
                for text, link in text_links.items():
                     if text in modified_text:
                          modified_text = modified_text.replace(text,f"{text}\n{link}")
@@ -430,8 +457,8 @@ async def add_links(event):
                         logging.info(f"Edited message in channel ID: {event.chat_id}")
                    except Exception as e:
                            logging.error(f"Error editing message in channel {event.chat_id}: {e}")
-           
     
+    copy_data = load_data()[3]
     if event.is_channel and str(event.chat_id) in copy_data:
         source_channel_id = event.chat_id
         destination_channel_id = copy_data[str(source_channel_id)]
