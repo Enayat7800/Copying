@@ -24,24 +24,24 @@ def load_data():
                 data.get('channel_ids', []),
                 data.get('text_links', {}),
                 data.get('user_data', {}),
-                data.get('forwarding_data', {})
+                data.get('copy_data', {}) # Changed from forwarding_data to copy_data
             )
     except (FileNotFoundError, json.JSONDecodeError):
         return [], {}, {}, {}
 
 # Save data to file
-def save_data(channel_ids, text_links, user_data, forwarding_data):
+def save_data(channel_ids, text_links, user_data, copy_data):
     data = {
         'channel_ids': channel_ids,
         'text_links': text_links,
         'user_data': user_data,
-        'forwarding_data': forwarding_data
+        'copy_data': copy_data # Changed from forwarding_data to copy_data
     }
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
 # Initialize the bot with data from storage
-CHANNEL_IDS, text_links, user_data, forwarding_data = load_data()
+CHANNEL_IDS, text_links, user_data, copy_data = load_data()
 
 # Initialize the client
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
@@ -100,7 +100,7 @@ async def start(event):
         'is_paid':False,
         'is_blocked':False
         }
-       save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+       save_data(CHANNEL_IDS, text_links, user_data, copy_data)
        user = await client.get_entity(user_id)
        username = user.username if user.username else "N/A"
        await send_notification(f"New user started the bot:\nUser ID: {user_id}\nUsername: @{username}")
@@ -124,8 +124,8 @@ async def help(event):
         "/showlinks - Added links dekhein\n"
         "/removechannel - Channel remove karein (jaise: /removechannel -100123456789)\n"
         "/removelink - Link remove karein (jaise: /removelink text)\n"
-        "/addforward - Message forwarding set karein (jaise: /addforward source_channel_id destination_channel_id)\n"
-        "/removeforward - Message forwarding remove karein (jaise: /removeforward source_channel_id)\n\n"
+        "/addcopy - Message copying set karein (jaise: /addcopy source_channel_id destination_channel_id)\n"
+        "/removecopy - Message copying remove karein (jaise: /removecopy source_channel_id)\n\n" # Changed /addforward to /addcopy and /removeforward to /removecopy
         "Contact for help: @captain_stive"
     )
     await event.respond(help_message)
@@ -146,7 +146,7 @@ async def add_channel(event):
         channel_id = int(match.group(1))
         if channel_id not in CHANNEL_IDS:
             CHANNEL_IDS.append(channel_id)
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
             await event.respond(f'Channel ID {channel_id} add ho gaya! 👍')
             await send_notification(f"Channel added by user {event.sender_id}:\nChannel ID: {channel_id}")
         else:
@@ -169,7 +169,7 @@ async def add_link(event):
     text = match.group(1).strip()
     link = match.group(2)
     text_links[text] = link
-    save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+    save_data(CHANNEL_IDS, text_links, user_data, copy_data)
     await event.respond(f'Text "{text}" aur link "{link}" add ho gaya! 👍')
     await send_notification(f"Link added by user {event.sender_id}:\nText: {text}\nLink: {link}")
     logging.info(f"Current text_links: {text_links}")
@@ -213,7 +213,7 @@ async def remove_channel(event):
         channel_id = int(match.group(1))
         if channel_id in CHANNEL_IDS:
             CHANNEL_IDS.remove(channel_id)
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
             await event.respond(f'Channel ID {channel_id} removed! 👍')
         else:
              await event.respond(f'Channel ID {channel_id} not found! ⚠️')
@@ -236,7 +236,7 @@ async def remove_link(event):
     text = match.group(1).strip()
     if text in text_links:
         del text_links[text]
-        save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+        save_data(CHANNEL_IDS, text_links, user_data, copy_data)
         await event.respond(f'Link with text "{text}" removed! 👍')
     else:
          await event.respond(f'Link with text "{text}" not found! ⚠️')
@@ -264,7 +264,7 @@ async def activate_user(event):
             user_data[user_id_to_activate]['start_date'] = datetime.now().isoformat()
             user_data[user_id_to_activate]['is_paid'] = True
             user_data[user_id_to_activate]['is_blocked'] = False
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
             await event.respond(f'User ID {user_id_to_activate} activated for 30 days! ✅')
             await client.send_message(user_id_to_activate, "Congratulations! Your account has been activated for 30 days. Enjoy using the bot!")
         else:
@@ -292,7 +292,7 @@ async def block_user(event):
         user_id_to_block = int(match.group(1))
         if user_id_to_block in user_data:
             user_data[user_id_to_block]['is_blocked'] = True
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
             await event.respond(f'User ID {user_id_to_block} blocked! 🚫')
         else:
              await event.respond(f'User ID {user_id_to_block} not found! ⚠️')
@@ -319,7 +319,7 @@ async def unblock_user(event):
         user_id_to_unblock = int(match.group(1))
         if user_id_to_unblock in user_data:
             user_data[user_id_to_unblock]['is_blocked'] = False
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
             await event.respond(f'User ID {user_id_to_unblock} unblocked! ✅')
         else:
              await event.respond(f'User ID {user_id_to_unblock} not found! ⚠️')
@@ -338,57 +338,58 @@ async def handle_chat_actions(event):
        except Exception as e:
             logging.error(f"Error getting chat username: {e}")
 
-@client.on(events.NewMessage(pattern=r'/addforward'))
-async def add_forward(event):
+
+@client.on(events.NewMessage(pattern=r'/addcopy')) # Changed /addforward to /addcopy
+async def add_copy(event):
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
     
     full_command = event.text.strip()
-    match = re.match(r'/addforward (-?\d+) (-?\d+)', full_command)
+    match = re.match(r'/addcopy (-?\d+) (-?\d+)', full_command)
     if not match:
-        await event.respond('Invalid command format. Use: /addforward source_channel_id destination_channel_id')
+        await event.respond('Invalid command format. Use: /addcopy source_channel_id destination_channel_id')
         return
 
     try:
         source_channel_id = int(match.group(1))
         destination_channel_id = int(match.group(2))
         
-        if str(source_channel_id) not in forwarding_data:
-           forwarding_data[str(source_channel_id)] = destination_channel_id
-           save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
-           await event.respond(f'Messages from channel {source_channel_id} will now be forwarded to {destination_channel_id} 👍')
-           await send_notification(f"Forwarding set by user {event.sender_id}:\nSource: {source_channel_id}\nDestination: {destination_channel_id}")
+        if str(source_channel_id) not in copy_data:
+           copy_data[str(source_channel_id)] = destination_channel_id
+           save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+           await event.respond(f'Messages from channel {source_channel_id} will now be copied to {destination_channel_id} 👍')
+           await send_notification(f"Copying set by user {event.sender_id}:\nSource: {source_channel_id}\nDestination: {destination_channel_id}")
         else:
-            await event.respond(f'Forwarding from {source_channel_id} already set. ⚠️')
+            await event.respond(f'Copying from {source_channel_id} already set. ⚠️')
     except ValueError:
            await event.respond('Invalid channel ID. Please use a valid integer.')
-    logging.info(f"Current forwarding_data: {forwarding_data}")
+    logging.info(f"Current copy_data: {copy_data}")
 
-@client.on(events.NewMessage(pattern=r'/removeforward'))
-async def remove_forward(event):
+@client.on(events.NewMessage(pattern=r'/removecopy')) # Changed /removeforward to /removecopy
+async def remove_copy(event):
    if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
    
    full_command = event.text.strip()
-   match = re.match(r'/removeforward (-?\d+)', full_command)
+   match = re.match(r'/removecopy (-?\d+)', full_command)
    if not match:
-        await event.respond('Invalid command format. Use: /removeforward source_channel_id')
+        await event.respond('Invalid command format. Use: /removecopy source_channel_id')
         return
 
    try:
         source_channel_id = int(match.group(1))
-        if str(source_channel_id) in forwarding_data:
-            del forwarding_data[str(source_channel_id)]
-            save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
-            await event.respond(f'Forwarding from {source_channel_id} removed! 👍')
-            await send_notification(f"Forwarding removed by user {event.sender_id}:\nSource: {source_channel_id}")
+        if str(source_channel_id) in copy_data:
+            del copy_data[str(source_channel_id)]
+            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
+            await event.respond(f'Copying from {source_channel_id} removed! 👍')
+            await send_notification(f"Copying removed by user {event.sender_id}:\nSource: {source_channel_id}")
         else:
-            await event.respond(f'Forwarding from {source_channel_id} not found! ⚠️')
+            await event.respond(f'Copying from {source_channel_id} not found! ⚠️')
    except ValueError:
         await event.respond('Invalid channel ID. Please use a valid integer.')
-   logging.info(f"Current forwarding_data: {forwarding_data}")
+   logging.info(f"Current copy_data: {copy_data}")
 
 @client.on(events.NewMessage())
 async def add_links(event):
@@ -410,15 +411,19 @@ async def add_links(event):
                     logging.error(f"Error editing message in channel {event.chat_id}: {e}")
                 break
 
-    if event.is_channel and str(event.chat_id) in forwarding_data:
+    if event.is_channel and str(event.chat_id) in copy_data:
         source_channel_id = event.chat_id
-        destination_channel_id = forwarding_data[str(source_channel_id)]
+        destination_channel_id = copy_data[str(source_channel_id)]
         try:
-            await client.forward_messages(destination_channel_id, event.message)
-            logging.info(f"Forwarded message from {source_channel_id} to {destination_channel_id}")
+           message = event.message  
+           if message.media:
+              await client.send_message(destination_channel_id, message=message.message, file=message.media)
+              logging.info(f"Copied media message from {source_channel_id} to {destination_channel_id}")
+           else:
+              await client.send_message(destination_channel_id, message=message.message)
+              logging.info(f"Copied message from {source_channel_id} to {destination_channel_id}")
         except Exception as e:
-            logging.error(f"Error forwarding message from {source_channel_id} to {destination_channel_id}: {e}")
-
+           logging.error(f"Error copying message from {source_channel_id} to {destination_channel_id}: {e}")
 
 # Start the bot
 with client:
