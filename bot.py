@@ -105,17 +105,9 @@ async def start(event):
        username = user.username if user.username else "N/A"
        await send_notification(f"New user started the bot:\nUser ID: {user_id}\nUsername: @{username}")
 
-    await event.respond('Namaste! 🙏  Bot mein aapka swagat hai!\n\n'
+    await event.respond('Namaste! 🙏 Captain Bot mein aapka swagat hai!\n\n'
                         'Ye bot aapke messages mein automatically links add kar dega aur channel se message copy kar ke aapke channel pe bhi post kar dega.\n\n'
-                        'Agar aapko koi problem ho ya help chahiye, to /help command use karein.\n\n'
-                        'Naye channel add karne ke liye, /addchannel command use karein (jaise: /addchannel -100123456789).\n\n'
-                        'Text aur link add karne ke liye /addlink command use karein (jaise: /addlink text link).\n\n'
-                         'Agar aapko added channel dekhna hai to /showchannels command use karein.\n\n'
-                         'Agar aapko added links dekhna hai to /showlinks command use karein.\n\n'
-                         'Agar channel remove karna hai to /removechannel command use karein (jaise: /removechannel -100123456789).\n\n'
-                         'Agar link remove karna hai to /removelink command use karein (jaise: /removelink text).\n\n'
-                         'Channel se message copy karne ke liye /addforward command use karein (jaise: /addforward source_channel_id destination_channel_id).\n\n'
-                         'Forwarding remove karne ke liye /removeforward command use karein (jaise: /removeforward source_channel_id).')
+                        'Agar aapko koi problem ho ya help chahiye, to /help command use karein.\n\n')
 
 @client.on(events.NewMessage(pattern='/help'))
 async def help(event):
