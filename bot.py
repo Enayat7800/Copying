@@ -3,14 +3,14 @@ import json
 from telethon import TelegramClient, events, types
 from datetime import datetime, timedelta
 import logging
-import re  # Import the regular expression module
+import re
 
 # Environment variables
 API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
-NOTIFICATION_CHANNEL_ID = int(os.getenv('NOTIFICATION_CHANNEL_ID'))  # New channel ID
+NOTIFICATION_CHANNEL_ID = int(os.getenv('NOTIFICATION_CHANNEL_ID'))
 
 # File to store data
 DATA_FILE = 'bot_data.json'
@@ -24,7 +24,7 @@ def load_data():
                 data.get('channel_ids', []),
                 data.get('text_links', {}),
                 data.get('user_data', {}),
-                data.get('forwarding_data', {}) # New data for forwarding
+                data.get('forwarding_data', {})
             )
     except (FileNotFoundError, json.JSONDecodeError):
         return [], {}, {}, {}
@@ -57,15 +57,13 @@ async def send_notification(message):
     except Exception as e:
         logging.error(f"Error sending notification: {e}")
 
-
 def is_trial_active(user_id):
     if user_id in user_data:
         start_date = datetime.fromisoformat(user_data[user_id]['start_date'])
         trial_end_date = start_date + timedelta(days=3)
         return datetime.now() <= trial_end_date, False
+    return True, True
 
-    return True, True # New user always gets the free trail
-    
 def is_user_active(user_id):
     if user_id in user_data:
         if user_data[user_id].get('is_paid',False):
@@ -84,12 +82,10 @@ def check_user_status(user_id):
         else:
             return is_user_active(user_id)
     else:
-        return is_trial_active(user_id)
-
+        return is_trial_active(user_id)[0]
 
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    """Sends a welcome message when the bot starts."""
     user_id = event.sender_id
     logging.info(f"User ID {user_id} used /start command.")
 
@@ -121,10 +117,8 @@ async def start(event):
                          'Channel se message copy karne ke liye /addforward command use karein (jaise: /addforward source_channel_id destination_channel_id).\n\n'
                          'Forwarding remove karne ke liye /removeforward command use karein (jaise: /removeforward source_channel_id).')
 
-
 @client.on(events.NewMessage(pattern='/help'))
 async def help(event):
-    """Provides help and contact information."""
     if not check_user_status(event.sender_id):
        await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
        return
@@ -132,7 +126,6 @@ async def help(event):
 
 @client.on(events.NewMessage(pattern=r'/addchannel'))
 async def add_channel(event):
-    """Adds a channel ID to the list of monitored channels with format validation."""
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
@@ -158,7 +151,6 @@ async def add_channel(event):
 
 @client.on(events.NewMessage(pattern=r'/addlink'))
 async def add_link(event):
-    """Adds a text and link pair to the dictionary with format validation."""
     if not check_user_status(event.sender_id):
          await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
          return
@@ -178,7 +170,6 @@ async def add_link(event):
 
 @client.on(events.NewMessage(pattern='/showchannels'))
 async def show_channels(event):
-    """Shows the list of added channels."""
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
@@ -191,7 +182,6 @@ async def show_channels(event):
 
 @client.on(events.NewMessage(pattern='/showlinks'))
 async def show_links(event):
-    """Shows the list of added text and links."""
     if not check_user_status(event.sender_id):
          await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
          return
@@ -204,7 +194,6 @@ async def show_links(event):
 
 @client.on(events.NewMessage(pattern=r'/removechannel'))
 async def remove_channel(event):
-    """Removes a channel from the list of monitored channels with format validation."""
     if not check_user_status(event.sender_id):
          await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
          return
@@ -228,7 +217,6 @@ async def remove_channel(event):
 
 @client.on(events.NewMessage(pattern=r'/removelink'))
 async def remove_link(event):
-    """Removes a text-link pair from the dictionary with format validation."""
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
@@ -248,15 +236,13 @@ async def remove_link(event):
          await event.respond(f'Link with text "{text}" not found! ⚠️')
     logging.info(f"Current text_links: {text_links}")
 
-
 @client.on(events.NewMessage(pattern=r'/adminactivate'))
 async def activate_user(event):
-    """Activates a user for 30 days after payment. Only admin can use this command."""
     if event.sender_id != ADMIN_ID:
         await event.respond("You are not authorized to use this command.")
         return
     
-    if event.sender_id != event.chat_id:  # Check if the command is sent in private
+    if event.sender_id != event.chat_id:
         await event.respond("This command should be used in a private chat with the bot.")
         return
     
@@ -274,7 +260,6 @@ async def activate_user(event):
             user_data[user_id_to_activate]['is_blocked'] = False
             save_data(CHANNEL_IDS, text_links, user_data, forwarding_data)
             await event.respond(f'User ID {user_id_to_activate} activated for 30 days! ✅')
-            # Send a congratulatory message to the user
             await client.send_message(user_id_to_activate, "Congratulations! Your account has been activated for 30 days. Enjoy using the bot!")
         else:
              await event.respond(f'User ID {user_id_to_activate} not found! ⚠️')
@@ -283,12 +268,11 @@ async def activate_user(event):
 
 @client.on(events.NewMessage(pattern=r'/adminblock'))
 async def block_user(event):
-    """Blocks a user from using the bot. Only admin can use this command."""
     if event.sender_id != ADMIN_ID:
         await event.respond("You are not authorized to use this command.")
         return
     
-    if event.sender_id != event.chat_id:  # Check if the command is sent in private
+    if event.sender_id != event.chat_id:
         await event.respond("This command should be used in a private chat with the bot.")
         return
     
@@ -311,12 +295,11 @@ async def block_user(event):
     
 @client.on(events.NewMessage(pattern=r'/adminunblock'))
 async def unblock_user(event):
-    """Unblocks a user from using the bot. Only admin can use this command."""
     if event.sender_id != ADMIN_ID:
         await event.respond("You are not authorized to use this command.")
         return
     
-    if event.sender_id != event.chat_id:  # Check if the command is sent in private
+    if event.sender_id != event.chat_id:
         await event.respond("This command should be used in a private chat with the bot.")
         return
     
@@ -339,7 +322,6 @@ async def unblock_user(event):
     
 @client.on(events.ChatAction)
 async def handle_chat_actions(event):
-    """Handles chat actions, specifically bot added to channel."""
     if event.user_added and event.who == await client.get_me():
        try:
             chat = await client.get_entity(event.chat_id)
@@ -352,7 +334,6 @@ async def handle_chat_actions(event):
 
 @client.on(events.NewMessage(pattern=r'/addforward'))
 async def add_forward(event):
-    """Adds a source and destination channel pair for message forwarding."""
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
@@ -380,7 +361,6 @@ async def add_forward(event):
 
 @client.on(events.NewMessage(pattern=r'/removeforward'))
 async def remove_forward(event):
-   """Removes a source channel from forwarding."""
    if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
@@ -427,11 +407,13 @@ async def add_links(event):
     if event.is_channel and str(event.chat_id) in forwarding_data:
         source_channel_id = event.chat_id
         destination_channel_id = forwarding_data[str(source_channel_id)]
-        try:
-            await client.forward_messages(destination_channel_id, event.message)
-            logging.info(f"Forwarded message from {source_channel_id} to {destination_channel_id}")
-        except Exception as e:
-           logging.error(f"Error forwarding message from {source_channel_id} to {destination_channel_id}: {e}")
+        if event.message.text:  # Check if it's a text message
+           try:
+              await client.send_message(destination_channel_id, event.message.text)
+              logging.info(f"Forwarded message from {source_channel_id} to {destination_channel_id}")
+           except Exception as e:
+              logging.error(f"Error forwarding message from {source_channel_id} to {destination_channel_id}: {e}")
+
 
 
 # Start the bot
