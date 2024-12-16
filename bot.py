@@ -105,8 +105,8 @@ async def start(event):
        username = user.username if user.username else "N/A"
        await send_notification(f"New user started the bot:\nUser ID: {user_id}\nUsername: @{username}")
 
-    await event.respond('Namaste! 🙏  Bot mein aapka swagat hai! \n\n'
-                        'Ye bot aapke messages mein automatically links add kar dega.\n\n'
+    await event.respond('Namaste! 🙏  Bot mein aapka swagat hai!\n\n'
+                        'Ye bot aapke messages mein automatically links add kar dega aur channel se message copy kar ke aapke channel pe bhi post kar dega.\n\n'
                         'Agar aapko koi problem ho ya help chahiye, to /help command use karein.\n\n'
                         'Naye channel add karne ke liye, /addchannel command use karein (jaise: /addchannel -100123456789).\n\n'
                         'Text aur link add karne ke liye /addlink command use karein (jaise: /addlink text link).\n\n'
@@ -122,7 +122,21 @@ async def help(event):
     if not check_user_status(event.sender_id):
        await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
        return
-    await event.respond('Aapko koi bhi problem ho, to mujhe yahaan contact karein: @captain_stive')
+    help_message = (
+        "Bot commands:\n\n"
+        "/start - Bot ko shuru karein\n"
+        "/help - Commands aur contact information dekhen\n"
+        "/addchannel - Channel add karein (jaise: /addchannel -100123456789)\n"
+        "/addlink - Text aur link add karein (jaise: /addlink text link)\n"
+        "/showchannels - Added channels dekhein\n"
+        "/showlinks - Added links dekhein\n"
+        "/removechannel - Channel remove karein (jaise: /removechannel -100123456789)\n"
+        "/removelink - Link remove karein (jaise: /removelink text)\n"
+        "/addforward - Message forwarding set karein (jaise: /addforward source_channel_id destination_channel_id)\n"
+        "/removeforward - Message forwarding remove karein (jaise: /removeforward source_channel_id)\n\n"
+        "Contact for help: @captain_stive"
+    )
+    await event.respond(help_message)
 
 @client.on(events.NewMessage(pattern=r'/addchannel'))
 async def add_channel(event):
@@ -395,7 +409,7 @@ async def add_links(event):
         logging.info(f"Message received from channel ID: {event.chat_id}")
         message_text = event.message.message
         for text, link in text_links.items():
-            if message_text.strip() == text:
+            if message_text and message_text.strip() == text:
                 new_message_text = f"{text}\n{link}"
                 try:
                     await event.edit(new_message_text)
@@ -407,13 +421,11 @@ async def add_links(event):
     if event.is_channel and str(event.chat_id) in forwarding_data:
         source_channel_id = event.chat_id
         destination_channel_id = forwarding_data[str(source_channel_id)]
-        if event.message.text:  # Check if it's a text message
-           try:
-              await client.send_message(destination_channel_id, event.message.text)
-              logging.info(f"Forwarded message from {source_channel_id} to {destination_channel_id}")
-           except Exception as e:
-              logging.error(f"Error forwarding message from {source_channel_id} to {destination_channel_id}: {e}")
-
+        try:
+            await client.forward_messages(destination_channel_id, event.message)
+            logging.info(f"Forwarded message from {source_channel_id} to {destination_channel_id}")
+        except Exception as e:
+            logging.error(f"Error forwarding message from {source_channel_id} to {destination_channel_id}: {e}")
 
 
 # Start the bot
