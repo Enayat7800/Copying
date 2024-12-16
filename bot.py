@@ -24,7 +24,7 @@ def load_data():
                 data.get('channel_ids', []),
                 data.get('text_links', {}),
                 data.get('user_data', {}),
-                data.get('copy_data', {}) # Changed from forwarding_data to copy_data
+                data.get('copy_data', {})
             )
     except (FileNotFoundError, json.JSONDecodeError):
         return [], {}, {}, {}
@@ -35,7 +35,7 @@ def save_data(channel_ids, text_links, user_data, copy_data):
         'channel_ids': channel_ids,
         'text_links': text_links,
         'user_data': user_data,
-        'copy_data': copy_data # Changed from forwarding_data to copy_data
+        'copy_data': copy_data
     }
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=4)
@@ -125,7 +125,7 @@ async def help(event):
         "/removechannel - Channel remove karein (jaise: /removechannel -100123456789)\n"
         "/removelink - Link remove karein (jaise: /removelink text)\n"
         "/addcopy - Message copying set karein (jaise: /addcopy source_channel_id destination_channel_id)\n"
-        "/removecopy - Message copying remove karein (jaise: /removecopy source_channel_id)\n\n" # Changed /addforward to /addcopy and /removeforward to /removecopy
+        "/removecopy - Message copying remove karein (jaise: /removecopy source_channel_id)\n\n"
         "Contact for help: @captain_stive"
     )
     await event.respond(help_message)
@@ -339,7 +339,7 @@ async def handle_chat_actions(event):
             logging.error(f"Error getting chat username: {e}")
 
 
-@client.on(events.NewMessage(pattern=r'/addcopy')) # Changed /addforward to /addcopy
+@client.on(events.NewMessage(pattern=r'/addcopy'))
 async def add_copy(event):
     if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
@@ -366,7 +366,7 @@ async def add_copy(event):
            await event.respond('Invalid channel ID. Please use a valid integer.')
     logging.info(f"Current copy_data: {copy_data}")
 
-@client.on(events.NewMessage(pattern=r'/removecopy')) # Changed /removeforward to /removecopy
+@client.on(events.NewMessage(pattern=r'/removecopy'))
 async def remove_copy(event):
    if not check_user_status(event.sender_id):
         await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
@@ -398,19 +398,40 @@ async def add_links(event):
         if event.is_private:
             await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
         return
+    
     if event.is_channel and event.chat_id in CHANNEL_IDS:
         logging.info(f"Message received from channel ID: {event.chat_id}")
-        message_text = event.message.message
-        for text, link in text_links.items():
-            if message_text and message_text.strip() == text:
-                new_message_text = f"{text}\n{link}"
-                try:
-                    await event.edit(new_message_text)
-                    logging.info(f"Edited message in channel ID: {event.chat_id}")
-                except Exception as e:
-                    logging.error(f"Error editing message in channel {event.chat_id}: {e}")
-                break
-
+        message_text = event.message.message if event.message.message else ""
+        
+        # Handle media messages
+        if event.message.media:
+            caption = event.message.message or ""  # Use caption as message
+            modified_caption = caption
+            
+            for text, link in text_links.items():
+                if text in modified_caption:
+                     modified_caption = modified_caption.replace(text, f"{text}\n{link}")
+            if modified_caption != caption:
+              try:
+                   await event.edit(text=modified_caption, file=event.message.media)
+                   logging.info(f"Edited media message caption in channel ID: {event.chat_id}")
+              except Exception as e:
+                    logging.error(f"Error editing media message caption in channel {event.chat_id}: {e}")
+        else:
+           # Handle text messages
+           if message_text:
+               modified_text = message_text
+               for text, link in text_links.items():
+                    if text in modified_text:
+                         modified_text = modified_text.replace(text,f"{text}\n{link}")
+               if modified_text != message_text:
+                   try:
+                        await event.edit(modified_text)
+                        logging.info(f"Edited message in channel ID: {event.chat_id}")
+                   except Exception as e:
+                           logging.error(f"Error editing message in channel {event.chat_id}: {e}")
+           
+    
     if event.is_channel and str(event.chat_id) in copy_data:
         source_channel_id = event.chat_id
         destination_channel_id = copy_data[str(source_channel_id)]
@@ -424,6 +445,7 @@ async def add_links(event):
               logging.info(f"Copied message from {source_channel_id} to {destination_channel_id}")
         except Exception as e:
            logging.error(f"Error copying message from {source_channel_id} to {destination_channel_id}: {e}")
+
 
 # Start the bot
 with client:
