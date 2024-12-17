@@ -85,6 +85,29 @@ def check_user_status(user_id):
     else:
         return is_trial_active(user_id)[0]
 
+# Welcome message
+@client.on(events.ChatAction)
+async def welcome_message(event):
+    """Sends a welcome message when added to a channel or group."""
+    if event.user_added or event.user_joined or event.is_group:
+        if event.user_id == client.me.id:  # Bot was added
+            await event.reply(
+                "**Hello!** I am a bot that can copy messages between channels. Use `/help` to see my commands."
+            )
+
+# Help command
+@client.on(events.NewMessage(pattern='/help'))
+async def help_command(event):
+    """Displays a list of available commands."""
+    help_text = (
+        "**Available Commands:**\n\n"
+        "/addcopy <source_channel_id> <destination_channel_id> - Start copying messages.\n"
+        "/removecopy <source_channel_id> - Stop copying messages from a channel.\n"
+        "/listcopies - List all active copies.\n"
+        "/help - Show this help message."
+    )
+    await event.respond(help_text)
+
 @client.on(events.NewMessage(pattern='/addcopy'))
 async def add_copy(event):
     """Adds copying between two channels and starts copying old messages."""
@@ -122,7 +145,7 @@ async def add_copy(event):
 async def copy_old_messages(source_channel_id, destination_channel_id):
     """Fetch and copy old messages from the source to the destination channel."""
     try:
-        async for message in client.iter_messages(source_channel_id, reverse=True):
+        async for message in client.iter_messages(source_channel_id):
             if message.media:
                 await client.send_message(destination_channel_id, message=message.message, file=message.media)
             else:
