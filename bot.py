@@ -1,175 +1,178 @@
-import os
-import json
-from telethon import TelegramClient, events, types
-from telethon.errors import ChatAdminRequiredError
-from datetime import datetime, timedelta
 import logging
-import re
+import asyncio
+import os
+from telethon import TelegramClient, events, sync
+from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.types import InputPeerChannel
+from telethon.tl.functions.messages import DeleteMessagesRequest
 
-# Environment variables
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID'))
-NOTIFICATION_CHANNEL_ID = int(os.getenv('NOTIFICATION_CHANNEL_ID'))
+# Enable logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# File to store data
-DATA_FILE = 'bot_data.json'
 
-# Load data from file or initialize if not exists
-def load_data():
+# Get API credentials and bot token from environment variables
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
+
+
+if not API_ID:
+    logger.error("API_ID not found in environment variables. Deployment will not work.")
+    exit()  # Exit if API_ID is missing
+else:
+    logger.info("API_ID found in environment variables.")
+
+
+if not API_HASH:
+    logger.error("API_HASH not found in environment variables. Deployment will not work.")
+    exit()  # Exit if API_HASH is missing
+else:
+    logger.info("API_HASH found in environment variables.")
+
+
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN not found in environment variables. Deployment will not work.")
+    exit()  # Exit if BOT_TOKEN is missing
+else:
+    logger.info("BOT_TOKEN found in environment variables.")
+
+
+if not CHANNEL_ID:
+    logger.error("CHANNEL_ID not found in environment variables. Deployment will not work.")
+    exit()
+else:
+  logger.info("CHANNEL_ID found in environment variables.")
+
+try:
+   CHANNEL_ID = int(CHANNEL_ID)
+   logger.info(f"Channel ID found and converted to int {CHANNEL_ID}")
+except ValueError:
+  logger.error(f"Invalid CHANNEL_ID: {CHANNEL_ID}, Please provide an integer value. Deployment will not work.")
+  exit()
+
+# Create Telethon client
+client = TelegramClient('anon', int(API_ID), API_HASH).start(bot_token=BOT_TOKEN)
+
+
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    """Sends a welcome message when the /start command is issued."""
+    logger.info(f"User {event.sender_id} started the bot.")
+    await event.respond("Hi! I'm your personal file finder. Send me a file name and I'll search for it in the channel.")
+
+
+@client.on(events.NewMessage)
+async def search_file_handler(event):
+    """Handles text messages and starts file search process."""
+    if event.is_private and not event.message.text.startswith('/'):
+       user_input = event.message.text
+       logger.info(f"User {event.sender_id} search: {user_input}")
+       found_files = await search_file(user_input, CHANNEL_ID)
+       if found_files:
+          keyboard = []
+          for file_name, file_id, message_id in found_files:
+             keyboard.append([
+                 telethon.tl.types.KeyboardButtonCallback(file_name, data=f'get_file:{file_id}:{message_id}'.encode())
+             ])
+          await event.respond("Files found, choose one", buttons=keyboard)
+       else:
+          logger.info(f"No files found with name {user_input}.")
+          await event.respond("No files found with that name.")
+
+@client.on(events.CallbackQuery(data=lambda data: data.startswith(b'get_file:')))
+async def get_file_handler(event):
+    """Handles file selection and sends the file to the user."""
+    query_data = event.data.decode().split(":")
+    file_id = int(query_data[1])
+    message_id = int(query_data[2])
+    logger.info(f"User {event.sender_id} selected File ID {file_id}, Message ID {message_id}")
     try:
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
-            return (
-                data.get('channel_ids', []),
-                data.get('text_links', {}),
-                data.get('user_data', {}),
-                data.get('copy_data', {})
-            )
-    except (FileNotFoundError, json.JSONDecodeError):
-        return [], {}, {}, {}
-
-# Save data to file
-def save_data(channel_ids, text_links, user_data, copy_data):
-    data = {
-        'channel_ids': channel_ids,
-        'text_links': text_links,
-        'user_data': user_data,
-        'copy_data': copy_data
-    }
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
-
-# Initialize the bot with data from storage
-CHANNEL_IDS, text_links, user_data, copy_data = load_data()
-
-# Initialize the client
-client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-
-# Set up logging
-logging.basicConfig(filename='bot.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-async def send_notification(message):
-    """Sends a message to the specified notification channel."""
-    try:
-        await client.send_message(NOTIFICATION_CHANNEL_ID, message)
-        logging.info(f"Notification sent to channel {NOTIFICATION_CHANNEL_ID}: {message}")
+      sent_file = await send_file(event.sender_id, file_id, message_id)
     except Exception as e:
-        logging.error(f"Error sending notification: {e}")
+      logger.error(f"Failed to send file to user: {e}")
+      await event.respond("Sorry, I could not send the file. Please try again later.")
+      return
+    logger.info(f"Successfully send file to user")
 
-def is_trial_active(user_id):
-    if user_id in user_data:
-        start_date = datetime.fromisoformat(user_data[user_id]['start_date'])
-        trial_end_date = start_date + timedelta(days=3)
-        return datetime.now() <= trial_end_date, False
-    return True, True
+    # Schedule deletion after 5 minutes
+    asyncio.create_task(delete_file_scheduled(event.sender_id, sent_file.id, 5*60))
 
-def is_user_active(user_id):
-    if user_id in user_data:
-        if user_data[user_id].get('is_paid', False):
-            start_date = datetime.fromisoformat(user_data[user_id]['start_date'])
-            end_date = start_date + timedelta(days=30)
-            return datetime.now() <= end_date
-        else:
-            return is_trial_active(user_id)[0]
-    else:
-        return is_trial_active(user_id)[0]
 
-def check_user_status(user_id):
-    if user_id in user_data:
-        if user_data[user_id].get('is_blocked', False):
-            return False
-        else:
-            return is_user_active(user_id)
-    else:
-        return is_trial_active(user_id)[0]
-
-# Welcome message
-@client.on(events.ChatAction)
-async def welcome_message(event):
-    """Sends a welcome message when added to a channel or group."""
-    if event.user_added or event.user_joined or event.is_group:
-        if event.user_id == client.me.id:  # Bot was added
-            await event.reply(
-                "**Hello!** I am a bot that can copy messages between channels. Use `/help` to see my commands."
-            )
-
-# Help command
-@client.on(events.NewMessage(pattern='/help'))
-async def help_command(event):
-    """Displays a list of available commands."""
-    help_text = (
-        "**Available Commands:**\n\n"
-        "/addcopy <source_channel_id> <destination_channel_id> - Start copying messages.\n"
-        "/removecopy <source_channel_id> - Stop copying messages from a channel.\n"
-        "/listcopies - List all active copies.\n"
-        "/help - Show this help message."
-    )
-    await event.respond(help_text)
-
-@client.on(events.NewMessage(pattern='/addcopy'))
-async def add_copy(event):
-    """Adds copying between two channels and starts copying old messages."""
-    if not check_user_status(event.sender_id):
-        await event.respond(f'Aapki free trial khatam ho gyi hai, please contact kare @captain_stive')
-        return
-    
-    full_command = event.text.strip()
-    match = re.match(r'/addcopy (-?\d+) (-?\d+)', full_command)
-    if not match:
-        await event.respond('Invalid command format. Use: /addcopy source_channel_id destination_channel_id')
-        return
-
+async def search_file(user_input, channel_id):
+    """Searches for files in the channel based on the user's input."""
     try:
-        source_channel_id = int(match.group(1))
-        destination_channel_id = int(match.group(2))
-
-        # Add the copy setup
-        if str(source_channel_id) not in copy_data:
-            copy_data[str(source_channel_id)] = destination_channel_id
-            save_data(CHANNEL_IDS, text_links, user_data, copy_data)
-            await event.respond(f'Messages from channel {source_channel_id} will now be copied to {destination_channel_id}. Old messages will also be copied.')
-            await send_notification(f"Copying set by user {event.sender_id}:\nSource: {source_channel_id}\nDestination: {destination_channel_id}")
-
-            # Copy old messages
-            await copy_old_messages(source_channel_id, destination_channel_id)
-        else:
-            await event.respond(f'Copying from {source_channel_id} already set. ⚠️')
-    except ValueError:
-        await event.respond('Invalid channel ID. Please use a valid integer.')
-    except ChatAdminRequiredError:
-        await event.respond('Bot needs to be an admin in the source channel to fetch old messages.')
-    logging.info(f"Current copy_data: {copy_data}")
-
-async def copy_old_messages(source_channel_id, destination_channel_id):
-    """Fetch and copy old messages from the source to the destination channel."""
-    try:
-        async for message in client.iter_messages(source_channel_id):
-            if message.media:
-                await client.send_message(destination_channel_id, message=message.message, file=message.media)
-            else:
-                await client.send_message(destination_channel_id, message=message.message)
-            logging.info(f"Copied old message from {source_channel_id} to {destination_channel_id}")
+        channel = await client.get_entity(channel_id)
+        logger.info(f"Getting messages from channel: {channel_id}")
+        all_messages = await client(GetHistoryRequest(
+            peer=channel,
+            limit=500,
+            offset_date=None,
+            offset_id=0,
+            max_id=0,
+            min_id=0,
+            add_offset=0,
+            hash=0
+        ))
+        logger.info(f"Successfully retrieved messages from channel.")
+        found_files = []
+        for message in all_messages.messages:
+           if message.document:
+                file_name = message.document.file_name
+                if user_input.lower() in file_name.lower():
+                    file_id = message.document.id
+                    found_files.append((file_name, file_id, message.id))  # Store file name, id, and message ID
+           if message.video:
+             file_name = message.video.file_name
+             if user_input.lower() in file_name.lower():
+                 file_id = message.video.id
+                 found_files.append((file_name, file_id, message.id))
+        return found_files
     except Exception as e:
-        logging.error(f"Error copying old messages from {source_channel_id} to {destination_channel_id}: {e}")
+      logger.error(f"Failed to get messages from channel: {e}")
+      return []
 
-@client.on(events.NewMessage())
-async def copy_new_messages(event):
-    """Copies new messages based on the set copy data."""
-    if event.is_channel and str(event.chat_id) in copy_data:
-        source_channel_id = event.chat_id
-        destination_channel_id = copy_data[str(source_channel_id)]
-        try:
-            message = event.message
-            if message.media:
-                await client.send_message(destination_channel_id, message=message.message, file=message.media)
-            else:
-                await client.send_message(destination_channel_id, message=message.message)
-            logging.info(f"Copied new message from {source_channel_id} to {destination_channel_id}")
-        except Exception as e:
-            logging.error(f"Error copying new message from {source_channel_id} to {destination_channel_id}: {e}")
 
-# Start the bot
-with client:
-    client.run_until_disconnected()
+async def send_file(chat_id, file_id, message_id):
+    """Sends the selected file to the user."""
+    try:
+      logger.info(f"Getting file message from channel with message id {message_id}")
+      file_message = await client.get_messages(chat_id, ids=[message_id])
+      logger.info(f"Successfully retrieved file message from channel.")
+      if file_message[0].media:
+          logger.info(f"Sending file {file_message[0].media}")
+          sent_file = await client.send_file(chat_id, file_message[0].media)
+          return sent_file
+    except Exception as e:
+      logger.error(f"Failed to send file to user: {e}")
+      return None
+
+async def delete_file_scheduled(chat_id, message_id, delay):
+    """Deletes a file after a delay."""
+    await asyncio.sleep(delay)
+    await delete_file(chat_id, message_id)
+
+
+async def delete_file(chat_id, message_id):
+    """Deletes a message by message id."""
+    try:
+        logger.info(f"Deleting file with message_id: {message_id}")
+        await client(DeleteMessagesRequest(
+            peer=chat_id,
+            id=[message_id]
+            ))
+        logger.info(f"File deleted successfully.")
+    except Exception as e:
+       logger.error(f"Error deleting file: {e}")
+
+
+async def main():
+    """Starts the bot."""
+    logger.info("Starting bot.")
+    await client.run_until_disconnected()
+    logger.info("Bot Stopped.")
+
+
+if __name__ == '__main__':
+   asyncio.run(main())
