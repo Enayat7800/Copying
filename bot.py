@@ -3,9 +3,9 @@ import asyncio
 import os
 
 # Bot Token aur API Details
-API_ID = 'Your_API_ID'  # Replace with your API ID
-API_HASH = 'Your_API_HASH'  # Replace with your API Hash
-BOT_TOKEN = 'Your_Bot_Token'  # Replace with your bot token
+API_ID = '28150346'  # Replace with your API ID
+API_HASH = '426f0d0a1da02dea8fb71cb0bd3ab7e1'  # Replace with your API Hash
+BOT_TOKEN = '6757464190:AAG7QlwzfP3wCwyOJ_nQN9K9836RJJaZchU'  # Replace with your bot token
 
 # Client Setup
 bot = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
