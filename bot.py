@@ -1,7 +1,7 @@
 from telethon import TelegramClient, events, Button
 import asyncio
 import os
-import difflib
+import re
 
 # Environment Variables
 API_ID = int(os.getenv('API_ID'))
@@ -65,12 +65,6 @@ async def list_channels(event):
         else:
             await event.reply('No channels are added currently')
 
-def find_closest_match(query, text_list):
-    if not text_list:
-        return None
-    matches = difflib.get_close_matches(query, text_list, n=1, cutoff=0.5)
-    return matches[0] if matches else None
-
 # Handle File/Video Name Directly
 @bot.on(events.NewMessage)
 async def handle_query(event):
@@ -79,24 +73,28 @@ async def handle_query(event):
         print(f"Searching for: {query}")
 
         found_results = {}
+         # Get the list of channels where the bot is an admin
+        admin_channels = []
+        async for dialog in bot.iter_dialogs():
+            if dialog.is_channel and dialog.entity.admin_rights is not None:
+              admin_channels.append(dialog.entity.id)
 
-        # Get the list of channels where the bot is an admin
-        dialogs = await bot.get_dialogs()
-        admin_channels = [dialog for dialog in dialogs if dialog.is_channel and dialog.entity.admin_rights is not None]
 
          # Search in admin channels and manually added channels
-        all_channels = [channel.id for channel in admin_channels] + list(channel_ids)
+        all_channels = admin_channels + list(channel_ids)
         print(f"Searching in channels: {all_channels}")
         
         # search in all available channels
         for channel_id in all_channels:
-            async for message in bot.iter_messages(channel_id): #remove the search term and send all the messages for filtering
+            async for message in bot.iter_messages(channel_id): # remove the search term and send all the messages for filtering
                  if message.file:  # Check if the message contains a file or video
-                   text_to_match = message.file.name if message.file and message.file.name else message.text if message.text else ""
-                   if text_to_match:
-                        best_match = find_closest_match(query, [text_to_match.lower()])
-                        if best_match:
+                     text_to_match = message.file.name if message.file and message.file.name else message.text if message.text else ""
+                     if text_to_match:
+                        # Create regex pattern with word boundaries to match whole words
+                        pattern = re.compile(r'\b' + re.escape(query) + r'\b', re.IGNORECASE)
+                        if pattern.search(text_to_match):
                             found_results[message.id] = {"channel_id":channel_id, "message":message}
+
 
         if found_results:
            
@@ -131,10 +129,13 @@ async def handle_query(event):
 async def handle_movie_selection(event):
     selected_message_id = int(event.data.split("_")[-1])
     
-    dialogs = await bot.get_dialogs()
-    admin_channels = [dialog for dialog in dialogs if dialog.is_channel and dialog.entity.admin_rights is not None]
+    
+    admin_channels = []
+    async for dialog in bot.iter_dialogs():
+        if dialog.is_channel and dialog.entity.admin_rights is not None:
+          admin_channels.append(dialog.entity.id)
 
-    all_channels = [channel.id for channel in admin_channels] + list(channel_ids)
+    all_channels = admin_channels + list(channel_ids)
     
     selected_message = None
     for channel_id in all_channels:
