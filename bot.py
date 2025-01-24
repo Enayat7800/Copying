@@ -1,6 +1,7 @@
 from telethon import TelegramClient, events, Button
 import asyncio
 import os
+import difflib
 
 # Environment Variables
 API_ID = int(os.getenv('API_ID'))
@@ -23,7 +24,7 @@ async def start(event):
             "Commands:\n"
             "/addchannel <channel_id> - Add a channel for search\n"
             "/removechannel <channel_id> - Remove a channel from search\n"
-            "/listchannels - List all added channels"
+            "/listchannels - List all added channels\n"
             "Note: Yeh bot un sabhi channels mein search karega jisme yeh admin hai, or vo channels jo manually add kiye gaye hai."
         )
 
@@ -64,11 +65,19 @@ async def list_channels(event):
         else:
             await event.reply('No channels are added currently')
 
+def find_closest_match(query, text_list):
+    if not text_list:
+        return None
+    matches = difflib.get_close_matches(query, text_list, n=1, cutoff=0.5)
+    return matches[0] if matches else None
+
 # Handle File/Video Name Directly
 @bot.on(events.NewMessage)
 async def handle_query(event):
     if event.is_private:
         query = event.raw_text.lower()
+        print(f"Searching for: {query}")
+
         found_results = {}
 
         # Get the list of channels where the bot is an admin
@@ -77,14 +86,18 @@ async def handle_query(event):
 
          # Search in admin channels and manually added channels
         all_channels = [channel.id for channel in admin_channels] + list(channel_ids)
+        print(f"Searching in channels: {all_channels}")
         
         # search in all available channels
         for channel_id in all_channels:
-           
-            async for message in bot.iter_messages(channel_id, search=query):
-                if message.file:  # Check if the message contains a file or video
-                   found_results[message.id] = {"channel_id":channel_id, "message":message}
-        
+            async for message in bot.iter_messages(channel_id): #remove the search term and send all the messages for filtering
+                 if message.file:  # Check if the message contains a file or video
+                   text_to_match = message.file.name if message.file and message.file.name else message.text if message.text else ""
+                   if text_to_match:
+                        best_match = find_closest_match(query, [text_to_match.lower()])
+                        if best_match:
+                            found_results[message.id] = {"channel_id":channel_id, "message":message}
+
         if found_results:
            
            if len(found_results) == 1 :
