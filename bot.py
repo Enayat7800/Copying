@@ -1,10 +1,11 @@
 from telethon import TelegramClient, events
 import asyncio
+import os
 
-# Bot Token aur API Details
-API_ID = '28150346'  # Replace with your API ID
-API_HASH = '426f0d0a1da02dea8fb71cb0bd3ab7e1'  # Replace with your API Hash
-BOT_TOKEN = '6757464190:AAG7QlwzfP3wCwyOJ_nQN9K9836RJJaZchU'  # Replace with your bot token
+# Environment Variables
+API_ID = int(os.getenv('API_ID'))  # Railway environment me integer conversion zaroori hai
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 # Client Setup
 bot = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
