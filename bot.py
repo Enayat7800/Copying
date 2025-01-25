@@ -4,11 +4,9 @@ import asyncio
 from telethon import TelegramClient, events, Button
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import InputPeerChannel
-from pymongo import MongoClient
-from urllib.parse import urlparse
 import re
 
-#logging configuration
+# Logging configuration
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -19,19 +17,14 @@ API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID"))
-MONGO_URL = os.environ.get("MONGO_URL")
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "movie_bot_db") # Default value if not provided
 OWNER_ID = int(os.environ.get("OWNER_ID"))
-
-# MongoDB Setup
-mongo_client = MongoClient(MONGO_URL)
-db = mongo_client[MONGO_DB_NAME]
-movies_collection = db["movies"]
 
 # Telegram Setup
 bot = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 client = TelegramClient('client', API_ID, API_HASH)
 
+# In-memory storage for movies (replace with a file-based storage if needed)
+movies_data = {}
 
 # Function to extract movie details from post text
 def extract_movie_details(text):
@@ -41,31 +34,30 @@ def extract_movie_details(text):
         return movie_name.strip(), year.strip(), quality.strip()
     return None, None, None
 
-# Function to process a single post and add/update it to DB
+# Function to process a single post and add/update it to the dictionary
 async def process_post(post,channel):
         if post.text:
             movie_name, year, quality = extract_movie_details(post.text)
             if movie_name and year and quality:
-                existing_movie = movies_collection.find_one({"movie_name": movie_name, "year": year, "quality": quality})
                 file_id=None
                 if post.media:
                    file_id = post.media.file.id if hasattr(post.media,'file') else None
-                if existing_movie:
-                    logger.info(f"Updating movie: {movie_name} ({year}) - {quality}")
-                    movies_collection.update_one(
-                        {"_id": existing_movie["_id"]},
-                        {"$set": {"file_id": file_id, "post_id":post.id}}
-                    )
+
+                key = (movie_name, year, quality, channel.id)
+                if key in movies_data:
+                   logger.info(f"Updating movie: {movie_name} ({year}) - {quality}")
+                   movies_data[key]["file_id"] = file_id
+                   movies_data[key]["post_id"]=post.id
                 else:
                     logger.info(f"Adding movie: {movie_name} ({year}) - {quality}")
-                    movies_collection.insert_one({
+                    movies_data[key] = {
                         "movie_name": movie_name,
                         "year": year,
                         "quality": quality,
-                         "file_id": file_id,
-                         "post_id":post.id,
-                         "channel_id": channel.id
-                    })
+                        "file_id": file_id,
+                        "post_id":post.id,
+                        "channel_id":channel.id
+                    }
 
 # Function to fetch and process channel posts
 async def fetch_and_process_posts():
@@ -131,18 +123,13 @@ async def search_movie(event):
     query = event.message.text
     if query.startswith('/'):
         return
-    
-    # Search the database
-    results = list(movies_collection.find({
-        "$and": [
-                {"channel_id": CHANNEL_ID},
-                { "$or":[
-            {"movie_name": {"$regex": re.compile(re.escape(query), re.IGNORECASE)}},
-            {"movie_name": {"$regex": re.compile(re.escape(query), re.IGNORECASE)}},
-        ]
-            }
-        ]
-    }))
+
+    # Search the data
+    results = []
+    for (movie_name, year, quality, channel_id), data in movies_data.items():
+      if channel_id == CHANNEL_ID and re.search(re.escape(query), movie_name, re.IGNORECASE):
+        results.append(data)
+
 
     if not results:
         await event.respond(f'Sorry, I could not find a movie or series matching "{query}". Please send your request to <a href="tg://user?id={OWNER_ID}">Support</a>',parse_mode="html")
@@ -153,7 +140,8 @@ async def search_movie(event):
         buttons = []
         for result in results:
              movie_info = f"{result['movie_name']} ({result['year']}) - {result['quality']}"
-             buttons.append(Button.inline(movie_info, data=f"select_movie_{result['_id']}"))
+             key = (result['movie_name'], result['year'], result['quality'],result['channel_id'])
+             buttons.append(Button.inline(movie_info, data=f"select_movie_{hash(key)}"))
 
         await event.respond("Multiple matches found, Please select a movie:", buttons=buttons)
 
@@ -162,8 +150,13 @@ async def search_movie(event):
 
 @bot.on(events.CallbackQuery(data=re.compile(r"select_movie_(.+)")))
 async def callback_query_handler(event):
-    movie_id = event.data.decode().split('_')[-1]
-    result = movies_collection.find_one({"_id":movie_id})
+    movie_hash = int(event.data.decode().split('_')[-1])
+    result=None
+    for key,data in movies_data.items():
+      if hash(key) == movie_hash:
+         result = data
+         break
+
 
     if result:
         await send_movie_file(event, result)
