@@ -1,3 +1,1 @@
 telethon
-pymongo
-python-dotenv
