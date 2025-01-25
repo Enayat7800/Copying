@@ -1,2 +1,7 @@
-telethon
-python-dotenv
+python-telegram-bot==20.3
+telethon==1.28.5
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.21.1
+sqlalchemy==2.0.19
+psycopg2-binary==2.9.7
+python-dotenv==1.0.0
