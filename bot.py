@@ -190,13 +190,19 @@ async def send_movie_file(event, result):
 
 
 async def main():
-    await fetch_and_process_posts()
-
-    # Start the bot
     try:
-      await bot.run_until_disconnected()
+        await fetch_and_process_posts()
+        # Start the bot
+        await bot.run_until_disconnected()
     except Exception as e:
-        logger.error(f"Error while running the bot: {e}")
+       logger.error(f"Error in main function: {e}")
+
+    finally:
+      if client.is_connected():
+         await client.disconnect()
+      if bot.is_connected():
+          await bot.disconnect()
+
     
 if __name__ == '__main__':
     asyncio.run(main())
