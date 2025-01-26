@@ -72,12 +72,16 @@ async def search(client, message):
     except Exception as e:
         await message.reply(f"⚠️ त्रुटि: {e}")
 
-if __name__ == "__main__":
+async def main():
     print("🚀 Starting Bot...")
     try:
-        app.start()
-        app.run(index_movies())
+        await app.start()
+        await index_movies()  # Index movies at startup
+        await app.idle()
     except Exception as e:
         print(f"🔥 Bot Crash: {e}")
     finally:
-        app.stop()
+        await app.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
