@@ -72,16 +72,12 @@ async def search(client, message):
     except Exception as e:
         await message.reply(f"⚠️ त्रुटि: {e}")
 
-async def main():
+if __name__ == "__main__":
     print("🚀 Starting Bot...")
     try:
-        await app.start()
-        await index_movies()  # Index movies at startup
-        await app.idle()
+        app.start()
+        asyncio.run(index_movies()) # This line was causing the issue
     except Exception as e:
         print(f"🔥 Bot Crash: {e}")
     finally:
-        await app.stop()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        app.stop()
