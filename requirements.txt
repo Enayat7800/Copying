@@ -1,4 +1,1 @@
-pyrogram==2.0.106
-   pymongo==4.5.0
-   python-dotenv==1.0.0
-   TgCrypto==1.2.4
+python-telegram-bot==20.5
