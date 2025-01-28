@@ -1,83 +1,65 @@
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
-import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pymongo import MongoClient
-from dotenv import load_dotenv
+import time
+import logging
 
-load_dotenv()
+# Logging setup
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# Configs
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGODB_URI = os.getenv("MONGODB_URI")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  # e.g., -1001234567890
+# Global variables
+user_cooldowns = {}  # Format: {user_id: last_request_time}
+ADULT_KEYWORDS = ["porn", "adult", "xxx", "nsfw", "18+", "explicit"]  # Add more keywords as needed
 
-# MongoDB Connection
-try:
-    mongo_client = MongoClient(MONGODB_URI)
-    db = mongo_client["MovieBot"]
-    collection = db["Movies"]
-    print("✅ MongoDB Connected!")
-except Exception as e:
-    print(f"❌ MongoDB Error: {e}")
-    exit()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🎉 **File to Direct Link Bot**\n\nकिसी भी फ़ाइल को भेजें, और मैं आपको उसका डायरेक्ट डाउनलोड लिंक दूंगा!")
 
-# Pyrogram Client
-app = Client("MovieBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    user_id = user.id
+    current_time = time.time()
 
-async def index_movies():
+    # Cooldown check (1 मिनट)
+    if user_id in user_cooldowns and (current_time - user_cooldowns[user_id] < 60):
+        await update.message.reply_text("⏳ 1 मिनट के बाद नई फ़ाइल भेजें।")
+        return
+
+    # Adult content check (फ़ाइल नाम से)
+    document = update.message.document
+    file_name = document.file_name or ""
+    if any(keyword in file_name.lower() for keyword in ADULT_KEYWORDS):
+        await update.message.reply_text("🚫 Adult content डिटेक्ट हुआ। आपको ब्लॉक किया गया है!")
+        return
+
+    # Generate Telegram direct link
     try:
-        # Verify Channel Access
-        chat = await app.get_chat(CHANNEL_ID)
-        print(f"🔄 Indexing: {chat.title}")
-
-        # Index Movies
-        count = 0
-        async for msg in app.get_chat_history(CHANNEL_ID):
-            if msg.video or msg.document:
-                title = msg.caption or (msg.video.file_name if msg.video else msg.document.file_name)
-                if title:
-                    data = {
-                        "title": title.strip().lower(),
-                        "file_id": msg.video.file_id if msg.video else msg.document.file_id
-                    }
-                    collection.update_one({"title": data["title"]}, {"$set": data}, upsert=True)
-                    count += 1
-        print(f"✅ {count} Movies Indexed!")
+        tg_file = await context.bot.get_file(document.file_id)
+        download_url = f"https://api.telegram.org/file/bot{os.environ['TOKEN']}/{tg_file.file_path}"
+        await update.message.reply_text(
+            f"✅ **डाउनलोड लिंक:**\n\n{download_url}\n\n"
+            "⚠️ लिंक 1 घंटे तक वैध रहेगा।\n"
+            "Chrome में सीधे डाउनलोड शुरू करने के लिए लिंक पर राइट-क्लिक करें > 'Save link as...' चुनें।"
+        )
+        user_cooldowns[user_id] = current_time  # Update cooldown
     except Exception as e:
-        print(f"❌ Indexing Failed: {e}")
-        print("Check: 1. Bot is Admin 2. Channel ID is Correct")
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("❌ लिंक जनरेट करने में त्रुटि!")
 
-async def delete_after_delay(chat_id, msg_id, delay=300):
-    await asyncio.sleep(delay)
-    await app.delete_messages(chat_id, msg_id)
+def main():
+    TOKEN = os.environ.get("TOKEN")
+    if not TOKEN:
+        raise ValueError("Environment variable 'TOKEN' not set!")
 
-@app.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply("🎬 मूवी खोजने के लिए मुझे मूवी का नाम भेजें!")
-
-@app.on_message(filters.private & ~filters.command("start"))
-async def search(client, message):
-    try:
-        query = message.text.strip().lower()
-        movie = collection.find_one({"title": query})
-        
-        if movie:
-            sent_msg = await message.reply_video(movie["file_id"], caption="⚠️ यह मूवी 5 मिनट में डिलीट हो जाएगी!")
-            asyncio.create_task(delete_after_delay(sent_msg.chat.id, sent_msg.id))
-        else:
-            await message.reply("❌ मूवी नहीं मिली!")
-    except Exception as e:
-        await message.reply(f"⚠️ त्रुटि: {e}")
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    
+    logger.info("Bot started!")
+    app.run_polling()
 
 if __name__ == "__main__":
-    print("🚀 Starting Bot...")
-    try:
-        app.start()
-        asyncio.run(index_movies()) # This line was causing the issue
-    except Exception as e:
-        print(f"🔥 Bot Crash: {e}")
-    finally:
-        app.stop()
+    main()
