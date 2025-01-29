@@ -1,195 +1,137 @@
-import logging
 import os
-import re
-import asyncio
-from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
+import json
+from pyrogram import Client, filters
 
-# पर्यावरण चर को लोड करना
-from dotenv import load_dotenv
-load_dotenv()
+# बॉट को इनिशियलाइज़ करें
+app = Client(
+    "advance_copy_bot",
+    api_id=os.environ.get("API_ID"),
+    api_hash=os.environ.get("API_HASH"),
+    bot_token=os.environ.get("BOT_TOKEN")
+)
 
-# बोट टोकन और चैनल आईडी को पर्यावरण चर से लेना
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ALLOWED_USERS = list(map(int, os.getenv("ALLOWED_USERS", "").split(','))) if os.getenv("ALLOWED_USERS") else []
+# Channel Data को स्टोर करने के लिए JSON फाइल
+CHANNELS_FILE = "channels.json"
 
-# लॉगिंग कॉन्फ़िगरेशन
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
-
-# चैनलों की सूची को स्टोर करने के लिए डिक्शनरी
-source_channels = {}
-target_channel_id = None  # Initialize target_channel_id to None
-
-async def start(update: Update, context: CallbackContext):
-    """स्टार्ट कमांड के लिए हैंडलर"""
-    await context.bot.send_message(chat_id=update.effective_chat.id,
-                                    text="नमस्ते! मैं एक चैनल कॉपी बॉट हूँ। /addchannel, /removechannel, /listchannels, /settarget और /showtarget जैसे कमांड का उपयोग करें।")
-
-
-async def add_channel(update: Update, context: CallbackContext):
-    """नया चैनल जोड़ने के लिए हैंडलर"""
-    if ALLOWED_USERS and update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("आपको यह कमांड उपयोग करने की अनुमति नहीं है।")
-        return
-
-    if len(context.args) == 0:
-        await update.message.reply_text("कृपया चैनल ID डालें।\nउदाहरण: `/addchannel -1001234567890`")
-        return
-
-    channel_id = context.args[0]
-
+# JSON से डेटा लोड करें
+def load_data():
     try:
-        channel_id = int(channel_id)
-        if channel_id in source_channels:
-            await update.message.reply_text("चैनल पहले से ही जुड़ा हुआ है।")
-            return
-        source_channels[channel_id] = {'last_message_id': 0}
-        await update.message.reply_text(f"चैनल {channel_id} जोड़ा गया।")
-        logging.info(f"Channel {channel_id} added.")
+        with open(CHANNELS_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"sources": [], "targets": []}
 
-    except ValueError:
-        await update.message.reply_text("चैनल ID एक मान्य पूर्णांक होना चाहिए।\nउदाहरण: `/addchannel -1001234567890`")
-        logging.warning(f"Invalid channel ID format: {channel_id}")
+# JSON में डेटा सेव करें
+def save_data(data):
+    with open(CHANNELS_FILE, "w") as f:
+        json.dump(data, f)
 
+# /start कमांड
+@app.on_message(filters.command("start") & filters.private)
+async def start(client, message):
+    help_text = """
+    🚀 **Advance Copy Bot Commands** 🚀
 
-async def remove_channel(update: Update, context: CallbackContext):
-    """चैनल को हटाने के लिए हैंडलर"""
-    if ALLOWED_USERS and update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("आपको यह कमांड उपयोग करने की अनुमति नहीं है।")
-        return
-    
-    if len(context.args) == 0:
-         await update.message.reply_text("कृपया चैनल ID डालें।\nउदाहरण: `/removechannel -1001234567890`")
-         return
+    • सोर्स चैनल ऐड करें: `/add_source चैनल_ID`
+    • टारगेट चैनल ऐड करें: `/add_target चैनल_ID`
+    • सोर्स चैनल रिमूव करें: `/remove_source चैनल_ID`
+    • टारगेट चैनल रिमूव करें: `/remove_target चैनल_ID`
+    • सभी चैनल्स देखें: `/list`
 
-    channel_id = context.args[0]
+    📝 चैनल ID पाने के लिए [@username_to_id_bot](https://t.me/username_to_id_bot) का इस्तेमाल करें।
+    """
+    await message.reply_text(help_text)
 
+# /add_source कमांड
+@app.on_message(filters.command("add_source") & filters.private)
+async def add_source(client, message):
+    data = load_data()
     try:
-        channel_id = int(channel_id)
-        if channel_id in source_channels:
-            del source_channels[channel_id]
-            await update.message.reply_text(f"चैनल {channel_id} हटाया गया।")
-            logging.info(f"Channel {channel_id} removed.")
-
+        source_id = int(message.text.split()[1])
+        if source_id not in data["sources"]:
+            data["sources"].append(source_id)
+            save_data(data)
+            await message.reply(f"✅ **सोर्स ऐड हुआ:** `{source_id}`")
         else:
-            await update.message.reply_text("चैनल नहीं मिला।")
-            logging.warning(f"Channel {channel_id} not found.")
-    except ValueError:
-         await update.message.reply_text("चैनल ID एक मान्य पूर्णांक होना चाहिए।\nउदाहरण: `/removechannel -1001234567890`")
-         logging.warning(f"Invalid channel ID format: {channel_id}")
+            await message.reply("⚠️ यह सोर्स पहले से ऐड है!")
+    except:
+        await message.reply("❌ गलत फॉर्मेट! उदाहरण: `/add_source -1001234567890`")
 
-
-async def list_channels(update: Update, context: CallbackContext):
-    """जुड़े हुए चैनलों की सूची दिखाने के लिए हैंडलर"""
-    if ALLOWED_USERS and update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("आपको यह कमांड उपयोग करने की अनुमति नहीं है।")
-        return
-    
-    if source_channels:
-        channel_list = "\n".join(str(channel_id) for channel_id in source_channels)
-        await update.message.reply_text(f"जुड़े हुए चैनल:\n{channel_list}")
-        logging.info(f"List of channels: {channel_list}")
-
-    else:
-        await update.message.reply_text("कोई चैनल नहीं जुड़ा है।")
-        logging.info("No channels connected.")
-
-
-async def set_target(update: Update, context: CallbackContext):
-    """टारगेट चैनल सेट करने के लिए हैंडलर"""
-    global target_channel_id
-    if ALLOWED_USERS and update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("आपको यह कमांड उपयोग करने की अनुमति नहीं है।")
-        return
-    
-    if len(context.args) == 0:
-        await update.message.reply_text("कृपया टारगेट चैनल ID डालें।\nउदाहरण: `/settarget -1001234567890`")
-        return
-    
-    channel_id = context.args[0]
+# /add_target कमांड
+@app.on_message(filters.command("add_target") & filters.private)
+async def add_target(client, message):
+    data = load_data()
     try:
-      channel_id = int(channel_id)
-      target_channel_id = channel_id
-      await update.message.reply_text(f"टारगेट चैनल {channel_id} सेट किया गया।")
-      logging.info(f"Target channel set to: {target_channel_id}")
+        target_id = int(message.text.split()[1])
+        if target_id not in data["targets"]:
+            data["targets"].append(target_id)
+            save_data(data)
+            await message.reply(f"✅ **टारगेट ऐड हुआ:** `{target_id}`")
+        else:
+            await message.reply("⚠️ यह टारगेट पहले से ऐड है!")
+    except:
+        await message.reply("❌ गलत फॉर्मेट! उदाहरण: `/add_target -1009876543210`")
 
-    except ValueError:
-         await update.message.reply_text("टारगेट चैनल ID एक मान्य पूर्णांक होना चाहिए।\nउदाहरण: `/settarget -1001234567890`")
-         logging.warning(f"Invalid target channel ID format: {channel_id}")
+# /remove_source कमांड
+@app.on_message(filters.command("remove_source") & filters.private)
+async def remove_source(client, message):
+    data = load_data()
+    try:
+        source_id = int(message.text.split()[1])
+        if source_id in data["sources"]:
+            data["sources"].remove(source_id)
+            save_data(data)
+            await message.reply(f"🗑️ **सोर्स रिमूव हुआ:** `{source_id}`")
+        else:
+            await message.reply("❌ यह सोर्स ऐड नहीं है!")
+    except:
+        await message.reply("❌ गलत फॉर्मेट! उदाहरण: `/remove_source -1001234567890`")
 
+# /remove_target कमांड
+@app.on_message(filters.command("remove_target") & filters.private)
+async def remove_target(client, message):
+    data = load_data()
+    try:
+        target_id = int(message.text.split()[1])
+        if target_id in data["targets"]:
+            data["targets"].remove(target_id)
+            save_data(data)
+            await message.reply(f"🗑️ **टारगेट रिमूव हुआ:** `{target_id}`")
+        else:
+            await message.reply("❌ यह टारगेट ऐड नहीं है!")
+    except:
+        await message.reply("❌ गलत फॉर्मेट! उदाहरण: `/remove_target -1009876543210`")
 
-async def show_target(update: Update, context: CallbackContext):
-    """सेट किए हुए टारगेट चैनल को दिखाने के लिए हैंडलर"""
-    if ALLOWED_USERS and update.effective_user.id not in ALLOWED_USERS:
-        await update.message.reply_text("आपको यह कमांड उपयोग करने की अनुमति नहीं है।")
-        return
+# /list कमांड
+@app.on_message(filters.command("list") & filters.private)
+async def list_channels(client, message):
+    data = load_data()
+    response = "📜 **चैनल्स की लिस्ट:**\n\n"
+    response += f"• **सोर्स चैनल्स:**\n{', '.join(map(str, data['sources']))}\n\n"
+    response += f"• **टारगेट चैनल्स:**\n{', '.join(map(str, data['targets']))}"
+    await message.reply_text(response)
 
-    if target_channel_id:
-        await update.message.reply_text(f"टारगेट चैनल ID: {target_channel_id}")
-        logging.info(f"Current target channel: {target_channel_id}")
+# मैसेज कॉपी करने का लॉजिक
+@app.on_message(filters.channel)
+async def copy_messages(client, message):
+    data = load_data()
+    if message.chat.id in data["sources"] and data["targets"]:
+        for target_id in data["targets"]:
+            try:
+                # टेक्स्ट मैसेज
+                if message.text:
+                    await client.send_message(target_id, message.text)
+                
+                # मीडिया मैसेज (फोटो, वीडियो, ऑडियो, स्टिकर, डॉक्यूमेंट)
+                elif message.media:
+                    media = message.photo or message.video or message.audio or message.sticker or message.document
+                    caption = message.caption if message.caption else ""
+                    await client.send_cached_media(
+                        chat_id=target_id,
+                        file_id=media.file_id,
+                        caption=caption
+                    )
+            except Exception as e:
+                print(f"Error in target {target_id}: {e}")
 
-    else:
-        await update.message.reply_text("कोई टारगेट चैनल सेट नहीं है। कृपया `/settarget` कमांड का उपयोग करें।")
-        logging.info("No target channel set.")
-
-
-async def copy_message(update: Update, context: CallbackContext):
-    """मैसेज को कॉपी करने के लिए हैंडलर"""
-    global target_channel_id
-    
-    if target_channel_id is None:
-        logging.info("No target channel is set.")
-        return
-
-    if update.channel_post and update.channel_post.chat.id in source_channels:
-        channel_id = update.channel_post.chat.id
-        message = update.channel_post
-        message_id = message.message_id
-
-        logging.info(f"Message from channel {channel_id}, message_id: {message_id}")
-
-        if message_id > source_channels[channel_id]['last_message_id']:
-            source_channels[channel_id]['last_message_id'] = message_id
-            logging.info(f"Processing new message from channel {channel_id}")
-            
-            if message.text:
-                text = message.text
-                # लिंक हटाएं
-                text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
-                 #टेक्स्ट मैसेज भेजें
-                await context.bot.send_message(chat_id=target_channel_id, text=text)
-                logging.info(f"Message sent to target channel: {target_channel_id}")
-
-
-            elif message.photo:
-                photo = message.photo[-1].file_id
-                caption = message.caption or ""
-                 # लिंक हटाएं
-                caption = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', caption)
-                #फोटो और कैप्शन भेजें
-                await context.bot.send_photo(chat_id=target_channel_id, photo=photo, caption=caption)
-                logging.info(f"Photo sent to target channel: {target_channel_id}")
-
-
-
-def main():
-    """मुख्य फंक्शन"""
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # कमांड हैंडलर
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('addchannel', add_channel))
-    application.add_handler(CommandHandler('removechannel', remove_channel))
-    application.add_handler(CommandHandler('listchannels', list_channels))
-    application.add_handler(CommandHandler('settarget', set_target))
-    application.add_handler(CommandHandler('showtarget', show_target))
-
-    # मैसेज हैंडलर
-    application.add_handler(MessageHandler(filters.ALL, copy_message))
-    
-    # बॉट शुरू करें
-    application.run_polling()
-
-if __name__ == '__main__':
-    main()
+app.run()
