@@ -11,7 +11,7 @@ load_dotenv()
 
 # बोट टोकन और चैनल आईडी को पर्यावरण चर से लेना
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ALLOWED_USERS = list(map(int, os.getenv("ALLOWED_USERS", "").split(','))) if os.getenv("ALLOWED_USERS") else []
+ALLOWED_USERS = list(map(int, os.getenv("ALLOWED_USERS", "1251962299").split(','))) if os.getenv("ALLOWED_USERS") else []
 
 # लॉगिंग कॉन्फ़िगरेशन
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
