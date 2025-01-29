@@ -1,2 +1,2 @@
-pyrogram==2.0.106
-python-dotenv==1.0.0
+python-telegram-bot
+python-dotenv
