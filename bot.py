@@ -1,15 +1,20 @@
 import os
 import logging
 from telethon import TelegramClient, events
-from config import API_ID, API_HASH, BOT_TOKEN, source_channels, destination_channel
 from pymongo import MongoClient
 
 # Enable logging for debugging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Environment variables (set these in Railway's environment variables)
+API_ID = os.getenv('API_ID')
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+MONGO_URL = os.getenv('MONGO_URL')
+
 # MongoDB connection
-client = MongoClient(os.getenv('MONGO_URL'))
+client = MongoClient(MONGO_URL)
 db = client['telegram_bot']
 source_channels = db['source_channels']
 destination_channel = db['destination_channel']
