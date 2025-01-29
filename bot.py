@@ -4,43 +4,47 @@ from pyrogram import Client, filters
 
 # बॉट को इनिशियलाइज़ करें
 app = Client(
-    "advance_copy_bot",
+    "ultimate_copy_bot",
     api_id=os.environ.get("API_ID"),
     api_hash=os.environ.get("API_HASH"),
     bot_token=os.environ.get("BOT_TOKEN")
 )
 
-# Channel Data को स्टोर करने के लिए JSON फाइल
+# डेटा स्टोरेज के लिए JSON फाइल
 CHANNELS_FILE = "channels.json"
 
-# JSON से डेटा लोड करें
+# डेटा लोड करें
 def load_data():
     try:
         with open(CHANNELS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            data.setdefault("is_active", True)
+            return data
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"sources": [], "targets": []}
+        return {"sources": [], "targets": [], "is_active": True}
 
-# JSON में डेटा सेव करें
+# डेटा सेव करें
 def save_data(data):
     with open(CHANNELS_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, indent=4, ensure_ascii=False, default=str)
 
 # /start कमांड
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     help_text = """
-    🚀 **Advance Copy Bot Commands** 🚀
+    🤖 **Ultimate Copy Bot Commands** 🤖
 
-    • सोर्स चैनल ऐड करें: `/add_source चैनल_ID`
-    • टारगेट चैनल ऐड करें: `/add_target चैनल_ID`
-    • सोर्स चैनल रिमूव करें: `/remove_source चैनल_ID`
-    • टारगेट चैनल रिमूव करें: `/remove_target चैनल_ID`
+    • सोर्स ऐड करें: `/add_source चैनल_ID`
+    • टारगेट ऐड करें: `/add_target चैनल_ID`
+    • सोर्स रिमूव करें: `/remove_source चैनल_ID`
+    • टारगेट रिमूव करें: `/remove_target चैनल_ID`
     • सभी चैनल्स देखें: `/list`
+    • बॉट शुरू करें: `/start_work`
+    • बॉट रोकें: `/stop_work`
 
-    📝 चैनल ID पाने के लिए [@username_to_id_bot](https://t.me/username_to_id_bot) का इस्तेमाल करें।
+    📌 चैनल ID पाने के लिए [@username_to_id_bot](https://t.me/username_to_id_bot) का इस्तेमाल करें।
     """
-    await message.reply_text(help_text)
+    await message.reply_text(help_text, disable_web_page_preview=True)
 
 # /add_source कमांड
 @app.on_message(filters.command("add_source") & filters.private)
@@ -48,6 +52,12 @@ async def add_source(client, message):
     data = load_data()
     try:
         source_id = int(message.text.split()[1])
+        # पब्लिक चैनल में जॉइन करें
+        try:
+            await client.join_chat(source_id)
+        except Exception as e:
+            await message.reply(f"⚠️ चैनल में जॉइन नहीं कर पाया: {str(e)}")
+            return
         if source_id not in data["sources"]:
             data["sources"].append(source_id)
             save_data(data)
@@ -107,31 +117,49 @@ async def remove_target(client, message):
 async def list_channels(client, message):
     data = load_data()
     response = "📜 **चैनल्स की लिस्ट:**\n\n"
-    response += f"• **सोर्स चैनल्स:**\n{', '.join(map(str, data['sources']))}\n\n"
-    response += f"• **टारगेट चैनल्स:**\n{', '.join(map(str, data['targets']))}"
+    response += f"• सोर्स: `{', '.join(map(str, data['sources']))}`\n"
+    response += f"• टारगेट: `{', '.join(map(str, data['targets']))}`\n"
+    response += f"• स्टेटस: `{'काम कर रहा है' if data['is_active'] else 'रुका हुआ'}`"
     await message.reply_text(response)
+
+# /start_work और /stop_work कमांड
+@app.on_message(filters.command("start_work") & filters.private)
+async def start_work(client, message):
+    data = load_data()
+    data["is_active"] = True
+    save_data(data)
+    await message.reply("🚀 बॉट ने काम करना शुरू कर दिया है!")
+
+@app.on_message(filters.command("stop_work") & filters.private)
+async def stop_work(client, message):
+    data = load_data()
+    data["is_active"] = False
+    save_data(data)
+    await message.reply("🛑 बॉट ने काम रोक दिया है!")
 
 # मैसेज कॉपी करने का लॉजिक
 @app.on_message(filters.channel)
 async def copy_messages(client, message):
     data = load_data()
-    if message.chat.id in data["sources"] and data["targets"]:
-        for target_id in data["targets"]:
-            try:
-                # टेक्स्ट मैसेज
-                if message.text:
-                    await client.send_message(target_id, message.text)
-                
-                # मीडिया मैसेज (फोटो, वीडियो, ऑडियो, स्टिकर, डॉक्यूमेंट)
-                elif message.media:
-                    media = message.photo or message.video or message.audio or message.sticker or message.document
-                    caption = message.caption if message.caption else ""
-                    await client.send_cached_media(
-                        chat_id=target_id,
-                        file_id=media.file_id,
-                        caption=caption
-                    )
-            except Exception as e:
-                print(f"Error in target {target_id}: {e}")
+    if not data["is_active"] or message.chat.id not in data["sources"]:
+        return
+
+    for target_id in data["targets"]:
+        try:
+            # टेक्स्ट मैसेज
+            if message.text:
+                await client.send_message(target_id, message.text)
+            
+            # मीडिया मैसेज
+            elif message.media:
+                media = message.photo or message.video or message.document or message.audio or message.sticker
+                caption = message.caption if message.caption else ""
+                await client.send_cached_media(
+                    chat_id=target_id,
+                    file_id=media.file_id,
+                    caption=caption
+                )
+        except Exception as e:
+            await message.reply(f"❌ टारगेट `{target_id}` में एरर: {str(e)}")
 
 app.run()
