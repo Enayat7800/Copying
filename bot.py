@@ -128,21 +128,19 @@ async def copy_messages():
                         async for message in app.get_chat_history(channel_username, limit=5):
                             if message.text:
                                 try:
-                                        cleaned_text = remove_links(message.text)
-                                        await app.send_message(DESTINATION_CHANNEL, cleaned_text)
-                                        logger.info(f"मैसेज को चैनल @{channel_username} से @{DESTINATION_CHANNEL} में कॉपी किया गया: {cleaned_text[:50]}...")
+                                    cleaned_text = remove_links(message.text)
+                                    await app.send_message(DESTINATION_CHANNEL, cleaned_text)
+                                    logger.info(f"मैसेज को चैनल @{channel_username} से @{DESTINATION_CHANNEL} में कॉपी किया गया: {cleaned_text[:50]}...")
                                 except Exception as e:
                                     logger.error(f"मैसेज कॉपी करने में त्रुटि: {e}")
                             elif message.photo:
-                                    try:
-                                        await app.send_photo(DESTINATION_CHANNEL, message.photo.file_id , caption=remove_links(message.caption))
-                                        logger.info(f"फोटो को चैनल @{channel_username} से @{DESTINATION_CHANNEL} में कॉपी किया गया।")
-                                    except Exception as e:
-                                         logger.error(f"फोटो कॉपी करने में त्रुटि: {e}")
-
-                                else:
-                                    logger.info(f"मैसेज को छोड़ा गया @{channel_username} मैसेज में टेक्स्ट या फोटो नहीं था ")
-
+                                try:
+                                    await app.send_photo(DESTINATION_CHANNEL, message.photo.file_id , caption=remove_links(message.caption))
+                                    logger.info(f"फोटो को चैनल @{channel_username} से @{DESTINATION_CHANNEL} में कॉपी किया गया।")
+                                except Exception as e:
+                                     logger.error(f"फोटो कॉपी करने में त्रुटि: {e}")
+                            else:
+                                 logger.info(f"मैसेज को छोड़ा गया @{channel_username} मैसेज में टेक्स्ट या फोटो नहीं था ")
 
                     await asyncio.sleep(60)  # हर मिनट मैसेज चेक करे
                 else:
