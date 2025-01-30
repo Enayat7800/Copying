@@ -1,9 +1,9 @@
 from telethon import TelegramClient, events
 
 # API details
-API_ID = int(os.environ.get("API_ID"))
-API_HASH = os.environ.get("API_HASH")
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+api_id = int(os.environ.get("API_ID"))
+api_hash = os.environ.get("API_HASH")
+bot_token = os.environ.get("BOT_TOKEN")
 
 # Source and destination channel IDs
 source_channel_id = int(os.environ.get("SOURCE_CHANNEL_ID"))
