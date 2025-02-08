@@ -1,153 +1,237 @@
 import os
-import re
-import logging
+import json
 import asyncio
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
+import re
+from telethon import TelegramClient, events, functions, types
 
-# Environment variables load karna
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID"))
-EXEMPT_BOT_ID = os.getenv("EXEMPT_BOT_ID")
-if EXEMPT_BOT_ID:
-    EXEMPT_BOT_ID = int(EXEMPT_BOT_ID)
+# Environment variables - Make sure you set OWNER_ID as well
+API_ID = int(os.getenv('API_ID'))
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+OWNER_ID = int(os.getenv('OWNER_ID'))  # Add your user ID here as environment variable
 
-# Logging configuration
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# File to store data
+DATA_FILE = 'bot_data.json'
 
-# Advanced URL regex pattern: ye pattern "http", "https" aur "www" se shuru hone waale links capture karega.
-URL_REGEX = re.compile(r'\b((?:https?://|www\.)\S+)\b', re.IGNORECASE)
+# Load data from file or initialize if not exists
+def load_data():
+    try:
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
+            return data.get('channel_ids', []), data.get('text_links', {}), data.get('authorized_user_ids', [OWNER_ID]) # Initialize authorized users with owner
+    except (FileNotFoundError, json.JSONDecodeError):
+        return [], {}, [OWNER_ID] # Initialize authorized users with owner
 
-# Global sets:
-ALLOWED_SENDERS = set()       # jin users ko owner permission de chuka hai
-ALLOWED_CHANNELS = set()      # channels jahan messages ko delete nahin karna hai
+# Save data to file
+def save_data(channel_ids, text_links, authorized_user_ids):
+    data = {'channel_ids': channel_ids, 'text_links': text_links, 'authorized_user_ids': authorized_user_ids}
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
-# Helper function: authorized check
-def is_authorized(user_id: int) -> bool:
-    return user_id == OWNER_ID or user_id in ALLOWED_SENDERS
 
-# Message handler jo sabhi messages ko process karega
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message is None:
-        return  # sirf messages ko process karte hain
+# Initialize the bot with data from storage
+CHANNEL_IDS, text_links, authorized_user_ids = load_data()
 
-    message = update.message
-    user = message.from_user
-    chat_id = update.effective_chat.id
 
-    # Agar message ke text mein koi URL ho
-    if message.text and URL_REGEX.search(message.text):
-        # Agar chat (channel) whitelisted hai, to koi deletion nahin
-        if chat_id in ALLOWED_CHANNELS:
-            logger.info(f"Channel {chat_id} whitelisted, message allowed.")
-            return
+# Initialize the client
+client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-        # Agar message sender owner ya allowed user hai, to bhi allow
-        if user and is_authorized(user.id):
-            logger.info(f"Authorized user {user.id} sent a message; allowed.")
-            return
+async def is_authorized(user_id):
+    return user_id in authorized_user_ids
 
-        # Agar message sender hamare exempt bot se hai, to allow
-        if user and user.is_bot and EXEMPT_BOT_ID and user.id == EXEMPT_BOT_ID:
-            logger.info(f"Message from exempt bot {EXEMPT_BOT_ID}; allowed.")
-            return
+async def is_admin_in_channel(user_id, channel_id):
+    try:
+        participant = await client.get_permissions(channel_id, user_id)
+        return participant.is_admin or participant.is_creator
+    except Exception as e:
+        print(f"Error checking admin status: {e}")
+        return False
 
-        # Agar above conditions match nahin hui, to 10 sec baad message delete karne ka prayas karte hain
-        await asyncio.sleep(10)
-        try:
-            await message.delete()
-            logger.info(f"Deleted message from {user.id} in chat {chat_id} containing link.")
-        except Exception as e:
-            logger.error(f"Error deleting message from {user.id} in chat {chat_id}: {e}")
 
-# Command: /allow - owner hi de sakta hai dusre user ko posting permission
-async def allow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("Sirf owner hi permission de sakta hai.")
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    """Sends a welcome message when the bot starts."""
+    await event.respond('Namaste! 🙏  Bot mein aapka swagat hai! \n\n'
+                        'Ye bot aapke channel ko manage karne mein madad karega.\n\n'
+                        'Sirf authorized users hi link post kar sakte hain command ke through.\n\n'
+                        'Agar koi aur admin link post karta hai to bot use 5 second mein delete kar dega.\n\n'
+                        'Agar aapko koi problem ho ya help chahiye, to /help command use karein.\n\n'
+                        'Naye channel add karne ke liye, /addchannel command use karein (jaise: /addchannel -100123456789).\n\n'
+                        'Authorized user add karne ke liye /authorizeuser command use karein (jaise: /authorizeuser 123456789).\n\n'
+                        'Authorized user remove karne ke liye /unauthorizeuser command use karein (jaise: /unauthorizeuser 123456789).\n\n'
+                        'Channel remove karne ke liye /removechannel command use karein (jaise: /removechannel -100123456789).\n\n'
+                         'Agar aapko added channel dekhna hai to /showchannels command use karein.\n\n'
+                         'Authorized users dekhne ke liye /showauthorizedusers command use karein.\n\n'
+                         'Link post karne ke liye /postlink command use karein (jaise: /postlink Message_text https://link.com).\n\n'
+                         'Bot owner: Aap hi hain (user ID: {})'.format(OWNER_ID))
+
+@client.on(events.NewMessage(pattern='/help'))
+async def help(event):
+    """Provides help and contact information."""
+    await event.respond('Yeh bot aapke channel ko manage karne ke liye hai.\n\n'
+                        '/start - Welcome message aur bot ki jankari.\n'
+                        '/help - Yeh help message.\n'
+                        '/addchannel <channel_id> - Channel ko monitor karne ke liye add karein.\n'
+                        '/removechannel <channel_id> - Monitored channel ko remove karein.\n'
+                        '/showchannels - Added channels ki list dekhein.\n'
+                        '/authorizeuser <user_id> - User ko link post karne ke liye authorize karein.\n'
+                        '/unauthorizeuser <user_id> - Authorized user ko remove karein.\n'
+                        '/showauthorizedusers - Authorized users ki list dekhein.\n'
+                        '/postlink <text> <link> - Channel mein link post karein (sirf authorized users).\n'
+                        '\n'
+                        'Koi bhi problem ho to @captain_stive par contact karein.')
+
+@client.on(events.NewMessage(pattern=r'/addchannel (-?\d+)'))
+async def add_channel(event):
+    """Adds a channel ID to the list of monitored channels."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
         return
 
-    if context.args:
-        try:
-            for uid in context.args:
-                ALLOWED_SENDERS.add(int(uid))
-            await update.message.reply_text("Permissions updated.")
-            logger.info(f"Allowed senders updated: {ALLOWED_SENDERS}")
-        except ValueError:
-            await update.message.reply_text("Kripya valid user IDs dein.")
-    else:
-        await update.message.reply_text("Kripya user ID(s) provide karein.")
-
-# Command: /disallow - owner hi remove kar sakta hai posting permission
-async def disallow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("Sirf owner hi permission remove kar sakta hai.")
-        return
-
-    if context.args:
-        try:
-            for uid in context.args:
-                ALLOWED_SENDERS.discard(int(uid))
-            await update.message.reply_text("Permissions updated.")
-            logger.info(f"Allowed senders updated: {ALLOWED_SENDERS}")
-        except ValueError:
-            await update.message.reply_text("Kripya valid user IDs dein.")
-    else:
-        await update.message.reply_text("Kripya user ID(s) provide karein.")
-
-# Command: /addchannel - kisi bhi channel ko whitelist karne ke liye.
-async def addchannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-
-    # Agar command channel se aayi hai, to us channel ko add karo.
-    if chat.type in ["channel", "supergroup", "group"]:
-        ALLOWED_CHANNELS.add(chat.id)
-        try:
-            await update.message.reply_text(f"Ye channel ({chat.id}) whitelist mein add ho gaya.")
-        except Exception as e:
-            logger.error(f"Error replying in channel {chat.id}: {e}")
-        logger.info(f"Channel {chat.id} added to allowed channels.")
-    else:
-        # Agar private chat se command aayi, to channel id argument ke roop mein de sakte hain
-        if context.args:
-            try:
-                channel_id = int(context.args[0])
-                ALLOWED_CHANNELS.add(channel_id)
-                await update.message.reply_text(f"Channel {channel_id} whitelist mein add ho gaya.")
-                logger.info(f"Channel {channel_id} added to allowed channels by owner.")
-            except ValueError:
-                await update.message.reply_text("Kripya valid channel ID dein.")
+    try:
+        channel_id = int(event.pattern_match.group(1))
+        if channel_id not in CHANNEL_IDS:
+            CHANNEL_IDS.append(channel_id)
+            save_data(CHANNEL_IDS, text_links, authorized_user_ids)
+            await event.respond(f'Channel ID {channel_id} add ho gaya! 👍')
         else:
-            await update.message.reply_text("Kripya channel ID provide karein ya channel se command run karein.")
+            await event.respond(f'Channel ID {channel_id} pahle se hi add hai! ⚠️')
+    except ValueError:
+        await event.respond('Invalid channel ID. Please use a valid integer.')
+    print(f"Current CHANNEL_IDS: {CHANNEL_IDS}")  # Debugging line: show current channel ids
 
-# Main function: Application build karna aur handlers add karna
-def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+@client.on(events.NewMessage(pattern=r'/removechannel (-?\d+)'))
+async def remove_channel(event):
+    """Removes a channel from the list of monitored channels."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+    try:
+        channel_id = int(event.pattern_match.group(1))
+        if channel_id in CHANNEL_IDS:
+            CHANNEL_IDS.remove(channel_id)
+            save_data(CHANNEL_IDS, text_links, authorized_user_ids)
+            await event.respond(f'Channel ID {channel_id} removed! 👍')
+        else:
+             await event.respond(f'Channel ID {channel_id} not found! ⚠️')
+    except ValueError:
+            await event.respond('Invalid channel ID. Please use a valid integer.')
+    print(f"Current CHANNEL_IDS: {CHANNEL_IDS}") # Debugging line: show current channel ids
 
-    # Message handler: text messages (commands excluded) ke liye
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
-    # Commands
-    application.add_handler(CommandHandler("allow", allow_command))
-    application.add_handler(CommandHandler("disallow", disallow_command))
-    application.add_handler(CommandHandler("addchannel", addchannel_command))
+@client.on(events.NewMessage(pattern='/showchannels'))
+async def show_channels(event):
+    """Shows the list of added channels."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+    if CHANNEL_IDS:
+        channel_list = "\n".join([str(cid) for cid in CHANNEL_IDS])
+        await event.respond(f'Current monitored channels:\n{channel_list}')
+    else:
+        await event.respond('No channels added yet.')
+    print(f"Current CHANNEL_IDS: {CHANNEL_IDS}")  # Debugging line: show current channel ids
 
-    # Error handler (global level)
-    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logger.error(msg="Exception while handling an update:", exc_info=context.error)
-    application.add_error_handler(error_handler)
 
-    # Bot ko polling se run karte hain
-    application.run_polling()
+@client.on(events.NewMessage(pattern=r'/authorizeuser (\d+)'))
+async def authorize_user(event):
+    """Authorizes a user to use bot commands."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+    try:
+        user_id = int(event.pattern_match.group(1))
+        if user_id not in authorized_user_ids:
+            authorized_user_ids.append(user_id)
+            save_data(CHANNEL_IDS, text_links, authorized_user_ids)
+            await event.respond(f'User ID {user_id} authorized! 👍')
+        else:
+            await event.respond(f'User ID {user_id} pahle se hi authorized hai! ⚠️')
+    except ValueError:
+        await event.respond('Invalid User ID. Please use a valid integer.')
+    print(f"Current authorized_user_ids: {authorized_user_ids}")
 
-if __name__ == '__main__':
-    main()
+@client.on(events.NewMessage(pattern=r'/unauthorizeuser (\d+)'))
+async def unauthorize_user(event):
+    """Removes authorization from a user."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+    try:
+        user_id = int(event.pattern_match.group(1))
+        if user_id != OWNER_ID: # Prevent removing owner from authorized users
+            if user_id in authorized_user_ids:
+                authorized_user_ids.remove(user_id)
+                save_data(CHANNEL_IDS, text_links, authorized_user_ids)
+                await event.respond(f'User ID {user_id} unauthorized! 👍')
+            else:
+                await event.respond(f'User ID {user_id} authorized nahi hai! ⚠️')
+        else:
+            await event.respond("Owner ko unauthorized nahi kiya ja sakta.")
+    except ValueError:
+        await event.respond('Invalid User ID. Please use a valid integer.')
+    print(f"Current authorized_user_ids: {authorized_user_ids}")
+
+@client.on(events.NewMessage(pattern='/showauthorizedusers'))
+async def show_authorized_users(event):
+    """Shows the list of authorized users."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+    if authorized_user_ids:
+        user_list = "\n".join([str(uid) for uid in authorized_user_ids])
+        await event.respond(f'Current authorized users:\n{user_list}')
+    else:
+        await event.respond('No users authorized yet.')
+    print(f"Current authorized_user_ids: {authorized_user_ids}")
+
+
+@client.on(events.NewMessage(pattern=r'/postlink (.+) (https?://[^\s]+)'))
+async def post_link_command(event):
+    """Posts a link to all monitored channels - only for authorized users."""
+    if not await is_authorized(event.sender_id):
+        await event.respond("Sirf authorized users hi yeh command use kar sakte hain.")
+        return
+
+    text = event.pattern_match.group(1).strip()
+    link = event.pattern_match.group(2)
+    message_to_post = f"{text}\n{link}"
+
+    for channel_id in CHANNEL_IDS:
+        try:
+            await client.send_message(channel_id, message_to_post)
+            print(f"Link posted to channel ID: {channel_id}")
+            await event.respond(f"Link posted to channel ID: {channel_id}") # Acknowledge to the user where it's posted. Consider better feedback.
+
+        except Exception as e:
+            await event.respond(f"Error posting to channel ID {channel_id}: {e}")
+            print(f"Error posting to channel {channel_id}: {e}")
+
+
+@client.on(events.NewMessage())
+async def delete_admin_links(event):
+    """Deletes links posted by other admins in monitored channels."""
+    if not event.is_channel or event.chat_id not in CHANNEL_IDS:
+        return
+
+    if event.message.entities:
+        for entity in event.message.entities:
+            if isinstance(entity, (types.MessageEntityUrl, types.MessageEntityTextUrl)):
+                sender_id = event.sender_id
+                bot_id = client.session.user_id
+
+                if sender_id != bot_id: # Ignore messages sent by the bot itself
+                    is_sender_admin = await is_admin_in_channel(sender_id, event.chat_id)
+                    if is_sender_admin:
+                        print(f"Link detected from admin {sender_id} in channel {event.chat_id}. Deleting in 5 seconds.")
+                        await asyncio.sleep(5) # Wait for 5 seconds
+                        try:
+                            await event.delete()
+                            print(f"Deleted link message from admin {sender_id} in channel {event.chat_id}")
+                        except Exception as e:
+                            print(f"Error deleting message: {e}")
+                        return # Delete only the first link message in case of multiple links, or remove return to delete all.
+
+
+# Start the bot
+with client:
+    client.run_until_disconnected()
