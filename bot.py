@@ -78,6 +78,7 @@ async def help(event):
                         '/unauthorizeuser <user_id> - Authorized user ko remove karein.\n'
                         '/showauthorizedusers - Authorized users ki list dekhein.\n'
                         '/postlink <text> <link> - Channel mein link post karein (sirf authorized users).\n'
+                        '/testadmin <user_id> - Check if a user is admin in the channel (for debugging).\n' # Added testadmin to help
                         '\n'
                         'Koi bhi problem ho to @captain_stive par contact karein.')
 
@@ -206,30 +207,54 @@ async def post_link_command(event):
             await event.respond(f"Error posting to channel ID {channel_id}: {e}")
             print(f"Error posting to channel {channel_id}: {e}")
 
+@client.on(events.NewMessage(pattern=r'/testadmin (\d+)'))
+async def test_admin_command(event):
+    """Test if a user is admin in the channel (for debugging)."""
+    if not event.is_channel:
+        await event.respond("Yeh command channel mein hi use karein.")
+        return
+    try:
+        user_id_to_test = int(event.pattern_match.group(1))
+        channel_id_to_test = event.chat_id # Assuming you run this command in the channel
+        is_admin = await is_admin_in_channel(user_id_to_test, channel_id_to_test)
+        await event.respond(f"User {user_id_to_test} is admin in this channel: {is_admin}")
+    except ValueError:
+        await event.respond("Invalid User ID. Please use a valid integer.")
+
 
 @client.on(events.NewMessage())
 async def delete_admin_links(event):
     """Deletes links posted by other admins in monitored channels."""
-    if not event.is_channel or event.chat_id not in CHANNEL_IDS:
+    print("New message event triggered.") # Debugging print
+    if not event.is_channel:
+        print("Not a channel message, ignoring.") # Debugging print
+        return
+    if event.chat_id not in CHANNEL_IDS:
+        print(f"Channel ID {event.chat_id} ({event.chat_id}) not in monitored channels, ignoring.") # Debugging print
         return
 
     if event.message.entities:
+        print("Message entities found.") # Debugging print
         for entity in event.message.entities:
             if isinstance(entity, (types.MessageEntityUrl, types.MessageEntityTextUrl)):
+                print("URL entity detected.") # Debugging print
                 sender_id = event.sender_id
                 bot_id = client.session.user_id
+                print(f"Sender ID: {sender_id}, Bot ID: {bot_id}") # Debugging print
 
                 if sender_id != bot_id: # Ignore messages sent by the bot itself
+                    print("Sender is not the bot.") # Debugging print
                     is_sender_admin = await is_admin_in_channel(sender_id, event.chat_id)
+                    print(f"Is sender admin: {is_sender_admin}") # Debugging print
                     if is_sender_admin:
-                        print(f"Link detected from admin {sender_id} in channel {event.chat_id}. Deleting in 5 seconds.")
+                        print(f"Link detected from admin {sender_id} in channel {event.chat_id}. Deleting in 5 seconds...") # Debugging print
                         await asyncio.sleep(5) # Wait for 5 seconds
                         try:
                             await event.delete()
-                            print(f"Deleted link message from admin {sender_id} in channel {event.chat_id}")
+                            print(f"Link message deleted from admin {sender_id} in channel {event.chat_id}.") # Debugging print
                         except Exception as e:
-                            print(f"Error deleting message: {e}")
-                        return # Delete only the first link message in case of multiple links, or remove return to delete all.
+                            print(f"Error deleting message: {e}") # Debugging print
+                        return # Delete only the first link message
 
 
 # Start the bot
