@@ -1,0 +1,10 @@
+{
+  "install": {
+    "include": ["^requirements\\.txt$"]
+  },
+  "restart": {
+    "exclude": ["^bot_data\\.json$", "^\\.session.*$", "^bot\\.log$"],
+    "include": ["^\\.env$", "^bot.*\\.py$", "^package\\.json$"]
+  },
+  "throttle": 100
+}

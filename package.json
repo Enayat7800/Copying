@@ -1,0 +1,21 @@
+{
+  "name": "telegram-channel-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for channel management with link deletion",
+  "main": "bot_with_keepalive.py",
+  "scripts": {
+    "start": "python3 bot_with_keepalive.py"
+  },
+  "engines": {
+    "node": "16.x"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "channel",
+    "management",
+    "python"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
