@@ -1,0 +1,7 @@
+{
+  "name": "telegram-bot",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "python3 bot_with_keepalive.py"
+  }
+}
