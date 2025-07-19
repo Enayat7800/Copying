@@ -5,10 +5,10 @@ import re
 from telethon import TelegramClient, events, functions, types
 
 # Environment variables - Make sure you set OWNER_ID as well
-API_ID = int(os.getenv('28150346'))
-API_HASH = os.getenv('426f0d0a1da02dea8fb71cb0bd3ab7e1')
-BOT_TOKEN = os.getenv('7540024639:AAFHcQ5YuIOyNIZsKKgRrfw4nj5p-3s2WxU')
-OWNER_ID = int(os.getenv('1251962299'))  # Add your user ID here as environment variable
+API_ID = int(os.getenv('API_ID'))
+API_HASH = os.getenv('API_HASH')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+OWNER_ID = int(os.getenv('OWNER_ID'))  # Add your user ID here as environment variable
 
 # File to store data
 DATA_FILE = 'bot_data.json'
